@@ -162,82 +162,141 @@
         let handX = 0.5;
 
         // ==========================================
-        // 2.5. BUNNY TARGET GENERATION
+        // 2.5. BUNNY TARGET GENERATION V2 (Pink, Small, Detailed)
         // ==========================================
-        function generateBunnyTargets(count, {
-            scale = 1.0,
-            earHeight = 22,
-            earGap = 12,
-            headRadius = 28,
-            zJitter = 2.0,
-            edgeBias = 0.65
-        } = {}) {
+        function bunnyShapeV2(count, opts = {}) {
+            const {
+                scale = 0.82,
+                zJitter = 1.2,
+                edgeBias = 0.22,
+                headRx = 28,
+                headRy = 24,
+                earH = 28,
+                earW = 9,
+                earGap = 14,
+                headYOffset = -6,
+                n = 2.6
+            } = opts;
+
             const out = new Float32Array(count * 3);
+            const rand = () => Math.random();
+            const rands = () => (Math.random() - 0.5) * 2;
 
-            function rand01() { return Math.random(); }
-            function randSigned() { return (Math.random() - 0.5) * 2; }
-
-            function sampleDisc(r) {
-                const u = Math.pow(rand01(), 1 - edgeBias);
-                const rad = r * Math.sqrt(u);
-                const t = rand01() * Math.PI * 2;
-                return [rad * Math.cos(t), rad * Math.sin(t)];
-            }
-
-            function sampleEar(centerX) {
-                const w = 7;
-                const topR = 7;
-
-                if (rand01() < 0.7) {
-                    const side = rand01() < 0.5 ? -1 : 1;
-                    const x = side * (w * Math.pow(rand01(), 0.35));
-                    const y = earHeight * Math.pow(rand01(), 0.65);
-                    return [centerX + x, y];
-                } else {
-                    const t = rand01() * Math.PI;
-                    const rad = topR * Math.sqrt(Math.pow(rand01(), 1 - edgeBias));
-                    const x = centerX + rad * Math.cos(t);
-                    const y = earHeight + rad * Math.sin(t);
-                    return [x, y];
+            function sampleSuperEllipse(a, b) {
+                while (true) {
+                    const u = Math.pow(rand(), 1 - edgeBias);
+                    const x = rands() * a * Math.sqrt(u);
+                    const y = rands() * b * Math.sqrt(u);
+                    const v = Math.pow(Math.abs(x / a), n) + Math.pow(Math.abs(y / b), n);
+                    if (v <= 1) return [x, y];
                 }
             }
 
-            const headCount = Math.floor(count * 0.65);
+            function sampleEar(cx, cy, w, h) {
+                const t = rand();
+                if (t < 0.65) {
+                    const x = rands() * w * (0.7 + 0.3 * rand());
+                    const y = rand() * h * 0.85;
+                    return [cx + x, cy + y];
+                } else {
+                    const ang = rand() * Math.PI;
+                    const rr = (w * 0.95) * Math.sqrt(Math.pow(rand(), 1 - edgeBias));
+                    const x = rr * Math.cos(ang);
+                    const y = (h * 0.85) + rr * Math.sin(ang);
+                    return [cx + x, cy + y];
+                }
+            }
+
+            const headCount = Math.floor(count * 0.78);
             const earCount = count - headCount;
             const earEach = Math.floor(earCount / 2);
 
             for (let i = 0; i < headCount; i++) {
-                const [x, y] = sampleDisc(headRadius);
-                const px = x;
-                const py = y - 8;
-                out[i * 3 + 0] = px * scale;
-                out[i * 3 + 1] = py * scale;
-                out[i * 3 + 2] = randSigned() * zJitter;
+                const [x, y] = sampleSuperEllipse(headRx, headRy);
+                out[i * 3 + 0] = x * scale;
+                out[i * 3 + 1] = (y + headYOffset) * scale;
+                out[i * 3 + 2] = rands() * zJitter;
             }
 
-            const leftX = -earGap;
-            const rightX = earGap;
-
+            const earY = headRy + headYOffset - 2;
             for (let j = 0; j < earEach; j++) {
-                const [x, y] = sampleEar(leftX);
+                const [x, y] = sampleEar(-earGap, earY, earW, earH);
                 const idx = headCount + j;
                 out[idx * 3 + 0] = x * scale;
-                out[idx * 3 + 1] = (y + 18) * scale;
-                out[idx * 3 + 2] = randSigned() * zJitter;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
             }
             for (let j = 0; j < earEach; j++) {
-                const [x, y] = sampleEar(rightX);
+                const [x, y] = sampleEar(earGap, earY, earW, earH);
                 const idx = headCount + earEach + j;
                 out[idx * 3 + 0] = x * scale;
-                out[idx * 3 + 1] = (y + 18) * scale;
-                out[idx * 3 + 2] = randSigned() * zJitter;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
             }
 
             for (let k = headCount + earEach * 2; k < count; k++) {
-                const t = rand01() * Math.PI * 2;
-                out[k * 3 + 0] = (headRadius * Math.cos(t)) * scale;
-                out[k * 3 + 1] = (headRadius * Math.sin(t) - 8) * scale;
-                out[k * 3 + 2] = randSigned() * zJitter;
+                const [x, y] = sampleSuperEllipse(headRx, headRy);
+                out[k * 3 + 0] = x * scale;
+                out[k * 3 + 1] = (y + headYOffset) * scale;
+                out[k * 3 + 2] = rands() * zJitter;
+            }
+
+            return out;
+        }
+
+        function bunnyDetailsV2(count, opts = {}) {
+            const {
+                scale = 0.80,
+                zJitter = 0.7,
+                earH = 28,
+                earGap = 14,
+                headRy = 24,
+                headYOffset = -6,
+            } = opts;
+
+            const out = new Float32Array(count * 3);
+            const rand = () => Math.random();
+            const rands = () => (Math.random() - 0.5) * 2;
+
+            function sampleBlob(cx, cy, rx, ry) {
+                const t = rand() * Math.PI * 2;
+                const r = Math.sqrt(rand());
+                return [cx + Math.cos(t) * rx * r, cy + Math.sin(t) * ry * r];
+            }
+
+            const innerEarCount = Math.floor(count * 0.5);
+            const cheekCount = Math.floor(count * 0.3);
+            const eyeCount = count - innerEarCount - cheekCount;
+
+            const earY = headRy + headYOffset - 2;
+
+            for (let i = 0; i < innerEarCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const cx = side * earGap;
+                const [x, y] = sampleBlob(cx, earY + earH * 0.55, 5.5, earH * 0.30);
+                out[i * 3 + 0] = x * scale;
+                out[i * 3 + 1] = y * scale;
+                out[i * 3 + 2] = rands() * zJitter;
+            }
+
+            const cheekY = headYOffset + 0;
+            for (let i = 0; i < cheekCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const [x, y] = sampleBlob(side * 14, cheekY, 6.0, 4.0);
+                const idx = innerEarCount + i;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
+            }
+
+            const eyeY = headYOffset + 7;
+            for (let i = 0; i < eyeCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const [x, y] = sampleBlob(side * 10, eyeY, 3.0, 3.0);
+                const idx = innerEarCount + cheekCount + i;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
             }
 
             return out;
@@ -263,10 +322,18 @@
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
-            // Bunny targets (procedural)
-            groupGold.geometry.userData.bunny = generateBunnyTargets(CONFIG.goldCount, { scale: 1.6, zJitter: 2.2, edgeBias: 0.7 });
-            groupRed.geometry.userData.bunny = generateBunnyTargets(CONFIG.redCount, { scale: 1.55, zJitter: 1.8, edgeBias: 0.65 });
-            groupGift.geometry.userData.bunny = generateBunnyTargets(CONFIG.giftCount, { scale: 1.5, zJitter: 1.2, edgeBias: 0.6 });
+            // Bunny targets V2: MAIN (head + outer ears) và DETAILS (inner ears + cheeks + eyes)
+            groupGold.geometry.userData.bunny = bunnyShapeV2(CONFIG.goldCount, {
+                scale: 0.82, edgeBias: 0.22, zJitter: 1.2, earH: 30
+            });
+            
+            groupRed.geometry.userData.bunny = bunnyDetailsV2(CONFIG.redCount, {
+                scale: 0.80, zJitter: 0.7
+            });
+            
+            groupGift.geometry.userData.bunny = bunnyShapeV2(CONFIG.giftCount, {
+                scale: 0.82, edgeBias: 0.18, zJitter: 0.6
+            });
 
             // Create dust system for magic rain
             dustSystem = createDustSystem(1200);
@@ -522,16 +589,39 @@
 
             } else if (targetState === 'BUNNY') {
                 group.rotation.y = 0;
-                const breathe = 1 + Math.sin(time * 1.3) * 0.06;
+
+                // breathing nhẹ
+                const breathe = 1 + Math.sin(time * 1.2) * 0.05;
                 group.scale.set(breathe, breathe, breathe);
 
-                for(let i=0; i<count; i++) {
-                    sizes[i] = baseSize;
-                    const tw = 0.85 + 0.15 * Math.sin(time * 6 + phases[i]);
-                    colors[i*3]   = baseColor.r * tw;
-                    colors[i*3+1] = baseColor.g * tw;
-                    colors[i*3+2] = baseColor.b * tw;
+                // Override màu theo type để ra thỏ hồng
+                const pinkMain = { r: 1.0, g: 0.75, b: 0.85 }; // ~ #FFC0D9
+                const pinkHot  = { r: 1.0, g: 0.45, b: 0.68 }; // ~ #FF6FAE
+                const eyeDark  = { r: 0.25, g: 0.05, b: 0.18 }; // tối nhẹ
+
+                for (let i = 0; i < count; i++) {
+                    // tắt gift khi BUNNY để khỏi nhiễu
+                    if (type === 'gift') {
+                        sizes[i] = 0;
+                        continue;
+                    }
+
+                    sizes[i] = baseSize * 0.9;
+
+                    // gold = main shape, red = details
+                    let c = (type === 'gold') ? pinkMain : pinkHot;
+
+                    // Nếu muốn mắt tối hơn: trên groupRed, một phần points cuối là eyes (20%)
+                    if (type === 'red') {
+                        const eyeStart = Math.floor(count * 0.8);
+                        if (i >= eyeStart) c = eyeDark;
+                    }
+
+                    colors[i*3]   = c.r;
+                    colors[i*3+1] = c.g;
+                    colors[i*3+2] = c.b;
                 }
+
                 group.geometry.attributes.color.needsUpdate = true;
                 group.geometry.attributes.size.needsUpdate = true;
 
