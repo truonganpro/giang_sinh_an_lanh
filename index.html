@@ -170,8 +170,99 @@
         let handX = 0.5;
 
         // ==========================================
-        // 2.5. BUNNY TARGET GENERATION V3 (Silhouette sampling - smooth like heart)
+        // 2.5. BUNNY TARGET GENERATION V4 (SDF + smooth union - smooth like heart)
         // ==========================================
+        // --- SDF helpers ---
+        function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+
+        function sdfCircle(x, y, cx, cy, r){
+            const dx = x - cx, dy = y - cy;
+            return Math.hypot(dx, dy) - r;
+        }
+
+        function sdfCapsule(x, y, ax, ay, bx, by, r){
+            const pax = x - ax, pay = y - ay;
+            const bax = bx - ax, bay = by - ay;
+            const h = clamp01((pax*bax + pay*bay) / (bax*bax + bay*bay));
+            const dx = pax - bax*h, dy = pay - bay*h;
+            return Math.hypot(dx, dy) - r;
+        }
+
+        function smoothMin(a, b, k){
+            const h = clamp01(0.5 + 0.5*(b - a)/k);
+            return (1 - h)*b + h*a - k*h*(1 - h);
+        }
+
+        // --- Bunny SDF (shape chính) ---
+        function sdfBunny(x, y){
+            const head1 = sdfCircle(x, y, 0.0, -0.25, 0.68);
+            const head2 = sdfCircle(x, y, 0.0, -0.10, 0.58);
+            let head = smoothMin(head1, head2, 0.22);
+
+            const leftEar  = sdfCapsule(x, y, -0.33, 0.10, -0.42, 1.05, 0.15);
+            const rightEar = sdfCapsule(x, y,  0.33, 0.10,  0.42, 1.05, 0.15);
+
+            let bunny = smoothMin(head, leftEar, 0.25);
+            bunny = smoothMin(bunny, rightEar, 0.25);
+
+            const notch = sdfCircle(x, y, 0.0, 0.10, 0.10);
+            bunny = Math.max(bunny, -notch);
+
+            return bunny;
+        }
+
+        // --- Bunny detail SDF: inner ears + cheeks + eyes ---
+        function sdfBunnyDetails(x, y){
+            const lInner = sdfCapsule(x, y, -0.33, 0.20, -0.38, 0.95, 0.075);
+            const rInner = sdfCapsule(x, y,  0.33, 0.20,  0.38, 0.95, 0.075);
+
+            const cheekL = sdfCircle(x, y, -0.30, -0.35, 0.16);
+            const cheekR = sdfCircle(x, y,  0.30, -0.35, 0.16);
+
+            const eyeL = sdfCircle(x, y, -0.18, -0.18, 0.08);
+            const eyeR = sdfCircle(x, y,  0.18, -0.18, 0.08);
+
+            let d = Math.min(lInner, rInner);
+            d = Math.min(d, cheekL);
+            d = Math.min(d, cheekR);
+            d = Math.min(d, eyeL);
+            d = Math.min(d, eyeR);
+            return d;
+        }
+
+        // Generator "mịn như tim": sample theo SDF + tăng density ở viền
+        function generateFromSDF(count, sdfFn, {
+            scale = 0.75,
+            zJitter = 0.6,
+            bounds = 1.25,
+            edgeWidth = 0.06,
+            edgeMix = 0.65,
+            S = 35
+        } = {}) {
+            const out = new Float32Array(count * 3);
+            let i = 0;
+
+            while (i < count) {
+                const x = (Math.random()*2 - 1) * bounds;
+                const y = (Math.random()*2 - 1) * bounds;
+
+                const d = sdfFn(x, y);
+                if (d > 0) continue;
+
+                const nearEdge = Math.abs(d) < edgeWidth;
+
+                const wantEdge = Math.random() < edgeMix;
+                if (wantEdge && !nearEdge) continue;
+
+                out[i*3+0] = x * S * scale;
+                out[i*3+1] = y * S * scale;
+                out[i*3+2] = (Math.random() - 0.5) * zJitter;
+                i++;
+            }
+            return out;
+        }
+
+        // Legacy function - replaced by generateFromSDF
         function generateBunnySilhouette(count, {
             scale = 0.75,
             zJitter = 0.6,
@@ -722,29 +813,26 @@
                 const breathe = 1 + Math.sin(time * 1.2) * 0.05;
                 group.scale.set(breathe, breathe, breathe);
 
+                // Tắt gift khi BUNNY để khỏi nhiễu
+                if (type === 'gift') {
+                    for (let i=0; i<count; i++) sizes[i] = 0;
+                    group.geometry.attributes.size.needsUpdate = true;
+                    return;
+                }
+
                 // Override màu theo type để ra thỏ hồng
-                const pinkMain = { r: 1.0, g: 0.75, b: 0.85 }; // ~ #FFC0D9
-                const pinkHot  = { r: 1.0, g: 0.45, b: 0.68 }; // ~ #FF6FAE
-                const eyeDark  = { r: 0.25, g: 0.05, b: 0.18 }; // tối nhẹ
+                const pinkMain = { r: 1.0, g: 0.75, b: 0.88 }; // pastel
+                const pinkHot  = { r: 1.0, g: 0.45, b: 0.70 }; // inner/cheek
+                const eyeDark  = { r: 0.22, g: 0.06, b: 0.18 };
 
                 for (let i = 0; i < count; i++) {
-                    // tắt gift khi BUNNY để khỏi nhiễu
-                    if (type === 'gift') {
-                        sizes[i] = 0;
-                        colors[i*3] = 0;
-                        colors[i*3+1] = 0;
-                        colors[i*3+2] = 0;
-                        continue;
-                    }
-
                     sizes[i] = baseSize * 0.75;
 
-                    // gold = main shape, red = details
                     let c = (type === 'gold') ? pinkMain : pinkHot;
 
-                    // Mắt tối hơn: trên groupRed, một phần points cuối là eyes (20%)
+                    // Mắt tối: 20% cuối làm "eye cluster"
                     if (type === 'red') {
-                        const eyeStart = Math.floor(count * 0.8);
+                        const eyeStart = Math.floor(count * 0.80);
                         if (i >= eyeStart) c = eyeDark;
                     }
 
@@ -753,8 +841,8 @@
                     colors[i*3+2] = c.b;
                 }
 
-                group.geometry.attributes.color.needsUpdate = true;
                 group.geometry.attributes.size.needsUpdate = true;
+                group.geometry.attributes.color.needsUpdate = true;
 
             } else {
                 // EXPLODE
