@@ -128,6 +128,13 @@
                 ctx.fillStyle = '#D32F2F'; ctx.fillRect(20, 20, 88, 88);
                 ctx.fillStyle = '#FFD700'; ctx.fillRect(54, 20, 20, 88); ctx.fillRect(20, 54, 88, 20);
                 ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth=2; ctx.strokeRect(20,20,88,88);
+            } else if (type === 'soft_dot') {
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+                grd.addColorStop(0, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.2, 'rgba(255,255,255,0.9)');
+                grd.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+                grd.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
             }
             return new THREE.CanvasTexture(canvas);
         }
@@ -135,7 +142,8 @@
         const textures = {
             gold: createCustomTexture('gold_glow'),
             red: createCustomTexture('red_light'),
-            gift: createCustomTexture('gift_red')
+            gift: createCustomTexture('gift_red'),
+            dot: createCustomTexture('soft_dot')
         };
 
         // ==========================================
@@ -162,8 +170,124 @@
         let handX = 0.5;
 
         // ==========================================
-        // 2.5. BUNNY TARGET GENERATION V2 (Pink, Small, Detailed)
+        // 2.5. BUNNY TARGET GENERATION V3 (Silhouette sampling - smooth like heart)
         // ==========================================
+        function generateBunnySilhouette(count, {
+            scale = 0.75,
+            zJitter = 0.6,
+            edgeBand = 0.08,
+            mixEdge = 0.55
+        } = {}) {
+            const out = new Float32Array(count * 3);
+
+            function insideHead(x, y) {
+                const cx = 0, cy = -0.15, rx = 0.70, ry = 0.55;
+                const dx = (x - cx) / rx;
+                const dy = (y - cy) / ry;
+                return dx*dx + dy*dy <= 1;
+            }
+
+            function insideCapsule(x, y, ax, ay, bx, by, r) {
+                const pax = x - ax, pay = y - ay;
+                const bax = bx - ax, bay = by - ay;
+                const h = Math.max(0, Math.min(1, (pax*bax + pay*bay) / (bax*bax + bay*bay)));
+                const dx = pax - bax*h, dy = pay - bay*h;
+                return (dx*dx + dy*dy) <= r*r;
+            }
+
+            function insideEars(x, y) {
+                const left  = insideCapsule(x, y, -0.35, 0.05, -0.35, 0.95, 0.13);
+                const right = insideCapsule(x, y,  0.35, 0.05,  0.35, 0.95, 0.13);
+                return left || right;
+            }
+
+            function insideBunny(x, y) {
+                return insideHead(x,y) || insideEars(x,y);
+            }
+
+            function nearEdge(x, y) {
+                if (!insideBunny(x,y)) return false;
+                const e = edgeBand;
+                return (
+                    !insideBunny(x+e,y) || !insideBunny(x-e,y) ||
+                    !insideBunny(x,y+e) || !insideBunny(x,y-e)
+                );
+            }
+
+            let i = 0;
+            while (i < count) {
+                let x = (Math.random()*2 - 1) * 1.0;
+                let y = (Math.random()*2 - 1) * 1.1;
+
+                const wantEdge = Math.random() < mixEdge;
+
+                if (wantEdge) {
+                    if (!nearEdge(x,y)) continue;
+                } else {
+                    if (!insideBunny(x,y)) continue;
+                }
+
+                const S = 35 * scale;
+                out[i*3+0] = x * S;
+                out[i*3+1] = y * S;
+                out[i*3+2] = (Math.random()-0.5) * zJitter;
+                i++;
+            }
+            return out;
+        }
+
+        function generateBunnyDetailsSilhouette(count, { scale=0.73, zJitter=0.5 } = {}) {
+            const out = new Float32Array(count*3);
+
+            function insideEllipse(x,y,cx,cy,rx,ry){
+                const dx=(x-cx)/rx, dy=(y-cy)/ry;
+                return dx*dx+dy*dy<=1;
+            }
+            function insideCapsule(x, y, ax, ay, bx, by, r) {
+                const pax = x - ax, pay = y - ay;
+                const bax = bx - ax, bay = by - ay;
+                const h = Math.max(0, Math.min(1, (pax*bax + pay*bay) / (bax*bax + bay*bay)));
+                const dx = pax - bax*h, dy = pay - bay*h;
+                return (dx*dx + dy*dy) <= r*r;
+            }
+
+            function insideInnerEars(x,y){
+                const l = insideCapsule(x,y,-0.35,0.18,-0.35,0.85,0.07);
+                const r = insideCapsule(x,y, 0.35,0.18, 0.35,0.85,0.07);
+                return l||r;
+            }
+
+            function insideCheeks(x,y){
+                const l = insideEllipse(x,y,-0.32,-0.18,0.14,0.10);
+                const r = insideEllipse(x,y, 0.32,-0.18,0.14,0.10);
+                return l||r;
+            }
+
+            function insideEyes(x,y){
+                const l = insideEllipse(x,y,-0.22,-0.02,0.07,0.07);
+                const r = insideEllipse(x,y, 0.22,-0.02,0.07,0.07);
+                return l||r;
+            }
+
+            function insideDetails(x,y){
+                return insideInnerEars(x,y) || insideCheeks(x,y) || insideEyes(x,y);
+            }
+
+            let i=0;
+            while(i<count){
+                const x=(Math.random()*2-1)*1.0;
+                const y=(Math.random()*2-1)*1.1;
+                if(!insideDetails(x,y)) continue;
+                const S=35*scale;
+                out[i*3]=x*S;
+                out[i*3+1]=y*S;
+                out[i*3+2]=(Math.random()-0.5)*zJitter;
+                i++;
+            }
+            return out;
+        }
+
+        // Legacy function - replaced by generateBunnySilhouette
         function bunnyShapeV2(count, opts = {}) {
             const {
                 scale = 0.82,
@@ -322,17 +446,18 @@
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
-            // Bunny targets V2: MAIN (head + outer ears) và DETAILS (inner ears + cheeks + eyes)
-            groupGold.geometry.userData.bunny = bunnyShapeV2(CONFIG.goldCount, {
-                scale: 0.82, edgeBias: 0.22, zJitter: 1.2, earH: 30
+            // Bunny targets V3: Silhouette sampling (smooth like heart)
+            groupGold.geometry.userData.bunny = generateBunnySilhouette(CONFIG.goldCount, {
+                scale: 0.75, zJitter: 0.6, edgeBand: 0.07, mixEdge: 0.6
             });
             
-            groupRed.geometry.userData.bunny = bunnyDetailsV2(CONFIG.redCount, {
-                scale: 0.80, zJitter: 0.7
+            groupRed.geometry.userData.bunny = generateBunnyDetailsSilhouette(CONFIG.redCount, {
+                scale: 0.73, zJitter: 0.45
             });
             
-            groupGift.geometry.userData.bunny = bunnyShapeV2(CONFIG.giftCount, {
-                scale: 0.82, edgeBias: 0.18, zJitter: 0.6
+            // Gift still has target but will be hidden when BUNNY
+            groupGift.geometry.userData.bunny = generateBunnySilhouette(CONFIG.giftCount, {
+                scale: 0.75, zJitter: 0.5, edgeBand: 0.07, mixEdge: 0.6
             });
 
             // Create dust system for magic rain
@@ -416,9 +541,12 @@
                 phases: phases, baseColor: baseColor, baseSize: size
             };
 
+            // Use soft dot texture for gold and red (smooth like heart), gift uses its own texture
+            const textureMap = (type === 'gold' || type === 'red') ? textures.dot : textures[type];
+            
             const mat = new THREE.PointsMaterial({
                 size: size,
-                map: textures[type],
+                map: textureMap,
                 transparent: true, opacity: 1.0,
                 vertexColors: true, 
                 blending: (type === 'gift') ? THREE.NormalBlending : THREE.AdditiveBlending, 
@@ -603,15 +731,18 @@
                     // tắt gift khi BUNNY để khỏi nhiễu
                     if (type === 'gift') {
                         sizes[i] = 0;
+                        colors[i*3] = 0;
+                        colors[i*3+1] = 0;
+                        colors[i*3+2] = 0;
                         continue;
                     }
 
-                    sizes[i] = baseSize * 0.9;
+                    sizes[i] = baseSize * 0.75;
 
                     // gold = main shape, red = details
                     let c = (type === 'gold') ? pinkMain : pinkHot;
 
-                    // Nếu muốn mắt tối hơn: trên groupRed, một phần points cuối là eyes (20%)
+                    // Mắt tối hơn: trên groupRed, một phần points cuối là eyes (20%)
                     if (type === 'red') {
                         const eyeStart = Math.floor(count * 0.8);
                         if (i >= eyeStart) c = eyeDark;
@@ -667,6 +798,8 @@
             });
 
             if (state === 'TREE') {
+                // Show gift group again when not BUNNY
+                if (groupGift) groupGift.visible = true;
                 titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
                 titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
                 starMesh.rotation.z -= 0.02; 
