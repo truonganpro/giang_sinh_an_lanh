@@ -561,26 +561,22 @@
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
-            // Bunny targets V4: SDF + smooth union (mịn như tim)
+            // Bunny targets V5: Cute & 3D Volume
+            // Group Gold: Dùng cho Body & Head (Shape tổng)
             groupGold.geometry.userData.bunny = generateFromSDF(CONFIG.goldCount, sdfBunny, {
-                scale: 0.72,
-                zJitter: 0.55,
-                edgeWidth: 0.05,
-                edgeMix: 0.70,
-                bounds: 1.25,
-                S: 35
+                scale: 0.75, // To hơn chút
+                bounds: 1.5,
+                S: 40        // Spread rộng hơn
             });
             
+            // Group Red: Dùng cho Details (Mắt, má, lòng tai)
             groupRed.geometry.userData.bunny = generateFromSDF(CONFIG.redCount, sdfBunnyDetails, {
-                scale: 0.72,
-                zJitter: 0.45,
-                edgeWidth: 0.07,
-                edgeMix: 0.55,
-                bounds: 1.25,
-                S: 35
+                scale: 0.75,
+                bounds: 1.5,
+                S: 40
             });
             
-            // Gift: dùng explode target (sẽ tắt khi BUNNY)
+            // Gift: dùng explode target (sẽ tắt khi BUNNY, chỉ hiện khi lắc cực mạnh)
             groupGift.geometry.userData.bunny = groupGift.geometry.userData.explode;
 
             // Create dust system for magic rain
