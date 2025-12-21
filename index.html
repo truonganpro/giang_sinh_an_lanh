@@ -789,15 +789,45 @@
             else if (targetState === 'BUNNY') targetKey = 'bunny';
             else targetKey = 'explode';
 
-            const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey] || group.geometry.userData.explode;
+            // Fallback nếu không có bunny target cho group Gift
+            let targets = group.geometry.userData[targetKey];
+            if (!targets && targetKey === 'bunny') targets = group.geometry.userData.explode; 
+            if (!targets) targets = group.geometry.userData.explode;
+            if (targetState === 'PHOTO') targets = group.geometry.userData.explode;
 
-            // 1. Vandiep
-            for(let i=0; i<positions.length; i++) {
-                positions[i] += (targets[i] - positions[i]) * speed;
+            // Lấy cường độ lắc tay (từ 0.0 đến 1.0)
+            const shakeEnergy = window.__bunnyShake || 0;
+
+            // Xử lý chuyển động với hiệu ứng shake
+            const count = positions.length / 3;
+            for(let i=0; i<count; i++) {
+                let tx = targets[i*3];
+                let ty = targets[i*3+1];
+                let tz = targets[i*3+2];
+
+                // --- HIỆU ỨNG ĐẶC BIỆT KHI LẮC TAY (BUNNY STATE) ---
+                if (targetState === 'BUNNY' && shakeEnergy > 0.1) {
+                    // 1. Rung lắc mạnh theo năng lượng
+                    const vibe = shakeEnergy * 1.5; 
+                    tx += (Math.random() - 0.5) * vibe;
+                    ty += (Math.random() - 0.5) * vibe;
+                    tz += (Math.random() - 0.5) * vibe * 2; // Rung mạnh chiều sâu
+
+                    // 2. Phóng to nhẹ toàn bộ mô hình (Pulse)
+                    const pulse = 1.0 + Math.sin(time * 20) * 0.05 * shakeEnergy;
+                    tx *= pulse; ty *= pulse; tz *= pulse;
+                }
+
+                // Nội suy vị trí (Lerp)
+                // Khi Shake, tăng tốc độ hội tụ để phản hồi nhanh hơn
+                const currentSpeed = (targetState === 'BUNNY' && shakeEnergy > 0.2) ? 0.15 : speed;
+                positions[i*3] += (tx - positions[i*3]) * currentSpeed;
+                positions[i*3+1] += (ty - positions[i*3+1]) * currentSpeed;
+                positions[i*3+2] += (tz - positions[i*3+2]) * currentSpeed;
             }
             group.geometry.attributes.position.needsUpdate = true;
             
-            // 2. COLOR & SIZE Vandiep (count already defined above)
+            // 2. COLOR & SIZE Vandiep
             
             if (targetState === 'TREE') {
                 group.rotation.y += 0.003;
