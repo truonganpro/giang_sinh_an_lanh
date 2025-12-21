@@ -194,93 +194,123 @@
         }
 
         // ==========================================
-        // 2.5. KAWAII BUNNY GENERATION (3D Volumetric)
+        // 2.5. FAT 3D BUNNY GENERATION (Giống hình mẫu)
         // ==========================================
-        // Hàm bổ trợ smooth min
+
+        // Hàm trộn mềm các khối 3D (để nách, cổ thỏ trông mượt mà)
         function smin(a, b, k) {
             const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k));
             return (1 - h) * b + h * a - k * h * (1 - h);
         }
 
-        // 1. Tạo hình dáng tổng thể (Đầu to, tai ngắn dễ thương)
-        function sdfBunny(x, y) {
-            // Đầu: Hình cầu hơi dẹt
-            const head = Math.hypot(x, y + 0.1) - 0.65;
+        // Hàm tính khoảng cách đến hình con nhộng (cho tai, tay)
+        function sdCapsule3D(p, a, b, r) {
+            const pa = new THREE.Vector3().subVectors(p, a);
+            const ba = new THREE.Vector3().subVectors(b, a);
+            const baLenSq = ba.lengthSq();
+            if (baLenSq < 0.0001) return pa.length() - r;
+            const h = Math.max(0, Math.min(1, pa.dot(ba) / baLenSq));
+            const baScaled = ba.clone().multiplyScalar(h);
+            const paMinusScaled = pa.clone().sub(baScaled);
+            return paMinusScaled.length() - r;
+        }
+
+        // 1. TẠO HÌNH DÁNG THỎ BÉO (FULL BODY 3D)
+        function sdfBunny3D(p) {
+            // p là Vector3 (x,y,z)
             
-            // Má phính (Cheeks): Thêm 2 hình cầu 2 bên để tạo độ bầu bĩnh
-            const cheekL = Math.hypot(x + 0.35, y + 0.25) - 0.35;
-            const cheekR = Math.hypot(x - 0.35, y + 0.25) - 0.35;
-            let shape = smin(head, cheekL, 0.15);
-            shape = smin(shape, cheekR, 0.15);
+            // A. THÂN (BODY): Hình cầu to ở dưới, hơi dẹt
+            const bodyPos = new THREE.Vector3(0, -0.45, 0);
+            // Kéo dẹt trục Y một chút cho béo
+            const pBody = new THREE.Vector3(p.x, (p.y - bodyPos.y) * 0.9, p.z * 0.9); 
+            const dBody = pBody.length() - 0.60;
 
-            // Tai: Dạng con nhộng (Capsule), ngắn và mập hơn
-            // Tai trái
-            const pax = x - (-0.35), pay = y - 0.35;
-            const bax = (-0.45) - (-0.35), bay = 1.1 - 0.35;
-            const h = Math.max(0, Math.min(1, (pax*bax + pay*bay) / (bax*bax + bay*bay)));
-            const dx = pax - bax*h, dy = pay - bay*h;
-            const earL = Math.hypot(dx, dy) - 0.18; // Tai mập hơn
+            // B. ĐẦU (HEAD): Hình cầu nhỏ hơn ở trên
+            const headPos = new THREE.Vector3(0, 0.35, 0.1); // Đầu hơi nhô ra trước
+            const dHead = p.distanceTo(headPos) - 0.42;
 
+            // Trộn Đầu + Thân
+            let d = smin(dBody, dHead, 0.15);
+
+            // C. TAI (EARS): Hai hình con nhộng dài
             // Tai phải
-            const pax2 = x - 0.35, pay2 = y - 0.35;
-            const bax2 = 0.45 - 0.35, bay2 = 1.1 - 0.35;
-            const h2 = Math.max(0, Math.min(1, (pax2*bax2 + pay2*bay2) / (bax2*bax2 + bay2*bay2)));
-            const dx2 = pax2 - bax2*h2, dy2 = pay2 - bay2*h2;
-            const earR = Math.hypot(dx2, dy2) - 0.18;
+            const earR_A = new THREE.Vector3(0.25, 0.65, 0.1); // Chân tai
+            const earR_B = new THREE.Vector3(0.40, 1.2, 0.1);  // Đỉnh tai
+            const dEarR = sdCapsule3D(p, earR_A, earR_B, 0.14);
+            
+            // Tai trái (Đối xứng qua trục X)
+            const earL_A = new THREE.Vector3(-0.25, 0.65, 0.1);
+            const earL_B = new THREE.Vector3(-0.40, 1.2, 0.1);
+            const dEarL = sdCapsule3D(p, earL_A, earL_B, 0.14);
 
-            shape = smin(shape, earL, 0.08);
-            shape = smin(shape, earR, 0.08);
+            d = smin(d, dEarR, 0.08);
+            d = smin(d, dEarL, 0.08);
 
-            return shape;
+            // D. CHÂN & TAY (LIMBS): Cho giống gấu bông
+            // Chân phải
+            const footR = p.distanceTo(new THREE.Vector3(0.3, -0.9, 0.3)) - 0.15;
+            const footL = p.distanceTo(new THREE.Vector3(-0.3, -0.9, 0.3)) - 0.15;
+            // Tay ngắn
+            const armR = sdCapsule3D(p, new THREE.Vector3(0.45, -0.3, 0.1), new THREE.Vector3(0.6, -0.5, 0.2), 0.12);
+            const armL = sdCapsule3D(p, new THREE.Vector3(-0.45, -0.3, 0.1), new THREE.Vector3(-0.6, -0.5, 0.2), 0.12);
+
+            d = smin(d, footR, 0.1);
+            d = smin(d, footL, 0.1);
+            d = smin(d, armR, 0.1);
+            d = smin(d, armL, 0.1);
+
+            // E. ĐUÔI (TAIL): Cục bông nhỏ sau lưng
+            const tail = p.distanceTo(new THREE.Vector3(0, -0.7, -0.5)) - 0.15;
+            d = smin(d, tail, 0.1);
+
+            return d; // Giá trị âm nghĩa là bên trong khối thỏ
         }
 
-        // 2. Chi tiết khuôn mặt (Mắt, má hồng, lòng tai)
-        function sdfBunnyDetails(x, y) {
-            // Mắt to tròn
-            const eyeL = Math.hypot(x + 0.22, y - 0.05) - 0.11;
-            const eyeR = Math.hypot(x - 0.22, y - 0.05) - 0.11;
+        // 2. CHI TIẾT MÀU ĐỎ (MÁ & LÒNG TAI)
+        function sdfBunnyDetails3D(p) {
+            // Má hồng (Cheeks)
+            const cheekR = p.distanceTo(new THREE.Vector3(0.35, 0.25, 0.45)) - 0.12;
+            const cheekL = p.distanceTo(new THREE.Vector3(-0.35, 0.25, 0.45)) - 0.12;
             
-            // Má hồng
-            const blushL = Math.hypot(x + 0.40, y + 0.15) - 0.14;
-            const blushR = Math.hypot(x - 0.40, y + 0.15) - 0.14;
+            // Lòng tai (Inner Ears) - Nhỏ hơn tai chính một chút
+            const earInR = sdCapsule3D(p, new THREE.Vector3(0.25, 0.65, 0.18), new THREE.Vector3(0.40, 1.1, 0.18), 0.06);
+            const earInL = sdCapsule3D(p, new THREE.Vector3(-0.25, 0.65, 0.18), new THREE.Vector3(-0.40, 1.1, 0.18), 0.06);
 
-            // Lòng tai (đơn giản hóa bằng hình tròn)
-            const earInnerL = Math.hypot(x - (-0.38), y - 0.65) - 0.08; 
-            const earInnerR = Math.hypot(x - 0.38, y - 0.65) - 0.08;
-            
-            let details = Math.min(eyeL, eyeR);
-            details = Math.min(details, blushL);
-            details = Math.min(details, blushR);
-            details = Math.min(details, earInnerL);
-            details = Math.min(details, earInnerR);
-            return details;
+            let d = Math.min(cheekR, cheekL);
+            d = Math.min(d, earInR);
+            d = Math.min(d, earInL);
+            return d;
         }
 
-        // 3. Generator tạo khối 3D (Quan trọng: Tạo độ dày Z)
-        function generateFromSDF(count, sdfFn, opts) {
-            const { scale = 0.75, bounds = 1.3, S = 35 } = opts || {};
+        // 3. GENERATOR 3D THỰC SỰ (Sampling trong khối hộp)
+        function generateFromSDF3D(count, sdfFn, scale, densityFocus = 1.0) {
             const out = new Float32Array(count * 3);
             let i = 0;
-            
-            while (i < count) {
-                const x = (Math.random() * 2 - 1) * bounds;
-                const y = (Math.random() * 2 - 1) * bounds;
-                
-                // Tính khoảng cách đến bề mặt shape
-                const d = sdfFn(x, y);
-                
-                // Nếu điểm nằm trong shape (d < 0)
-                if (d < 0) {
-                    // TẠO ĐỘ DÀY 3D:
-                    // Càng sâu vào tâm (d càng âm), bề mặt càng nổi lên (Z cao)
-                    // Mô phỏng hình khối cầu/bầu dục
-                    const thickness = Math.sqrt(Math.abs(d)) * 0.8; 
-                    const z = (Math.random() - 0.5) * thickness * 2.0; // Phân bố hạt dọc theo độ dày
+            const boxSize = 1.6; // Kích thước vùng tìm kiếm
 
-                    out[i*3+0] = x * S * scale;
-                    out[i*3+1] = y * S * scale;
-                    out[i*3+2] = z * S * 0.8; // Z-depth scaling
-                    i++;
+            while (i < count) {
+                // Lấy điểm ngẫu nhiên trong không gian 3D
+                const x = (Math.random() * 2 - 1) * boxSize;
+                const y = (Math.random() * 2 - 1) * boxSize;
+                const z = (Math.random() * 2 - 1) * boxSize * 0.8; // Z mỏng hơn chút
+
+                const vec = new THREE.Vector3(x, y, z);
+                const dist = sdfFn(vec);
+
+                // Nếu điểm nằm trong thỏ (dist < 0)
+                if (dist < 0.02) { // 0.02 là margin để lấy cả viền
+                    // Tỷ lệ lấy: Càng sâu bên trong càng dễ lấy (để tạo khối đặc)
+                    // Hoặc lấy bề mặt: abs(dist) nhỏ
+                    const prob = Math.random();
+                    // Logic: Lấy chủ yếu ở bề mặt (dist gần 0) để tạo viền sáng như hình
+                    // Nhưng cũng cần lấp đầy bên trong
+                    
+                    if (prob > 0.3) { // 70% lấy điểm bất kỳ bên trong -> thỏ đặc
+                        out[i*3]   = x * 40 * scale; // Scale to lên (40)
+                        out[i*3+1] = y * 40 * scale;
+                        out[i*3+2] = z * 40 * scale;
+                        i++;
+                    }
                 }
             }
             return out;
@@ -561,20 +591,20 @@
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
             groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
 
-            // Bunny targets V5: Cute & 3D Volume
-            // Group Gold: Dùng cho Body & Head (Shape tổng)
-            groupGold.geometry.userData.bunny = generateFromSDF(CONFIG.goldCount, sdfBunny, {
-                scale: 0.75, // To hơn chút
-                bounds: 1.5,
-                S: 40        // Spread rộng hơn
-            });
+            // TẠO MODEL THỎ 3D BÉO (FULL BODY)
+            // Group Gold: Thân hình chính
+            groupGold.geometry.userData.bunny = generateFromSDF3D(
+                CONFIG.goldCount, 
+                sdfBunny3D, 
+                0.85 // Scale to lên
+            );
             
-            // Group Red: Dùng cho Details (Mắt, má, lòng tai)
-            groupRed.geometry.userData.bunny = generateFromSDF(CONFIG.redCount, sdfBunnyDetails, {
-                scale: 0.75,
-                bounds: 1.5,
-                S: 40
-            });
+            // Group Red: Chi tiết (Má, Tai trong)
+            groupRed.geometry.userData.bunny = generateFromSDF3D(
+                CONFIG.redCount, 
+                sdfBunnyDetails3D, 
+                0.85
+            );
             
             // Gift: dùng explode target (sẽ tắt khi BUNNY, chỉ hiện khi lắc cực mạnh)
             groupGift.geometry.userData.bunny = groupGift.geometry.userData.explode;
@@ -805,25 +835,35 @@
                 let ty = targets[i*3+1];
                 let tz = targets[i*3+2];
 
-                // --- HIỆU ỨNG ĐẶC BIỆT KHI LẮC TAY (BUNNY STATE) ---
-                if (targetState === 'BUNNY' && shakeEnergy > 0.1) {
-                    // 1. Rung lắc mạnh theo năng lượng
-                    const vibe = shakeEnergy * 1.5; 
-                    tx += (Math.random() - 0.5) * vibe;
-                    ty += (Math.random() - 0.5) * vibe;
-                    tz += (Math.random() - 0.5) * vibe * 2; // Rung mạnh chiều sâu
+                // --- HIỆU ỨNG LẮC TAY (SHAKE EFFECT) - PHÁO HOA ---
+                if (targetState === 'BUNNY' && shakeEnergy > 0.05) {
+                    // 1. Hiệu ứng "Bung tỏa" (Firework spikes)
+                    // Đẩy hạt ra xa theo hướng từ tâm (0,0,0)
+                    const dist = Math.sqrt(tx*tx + ty*ty + tz*tz);
+                    if (dist > 0.001) {
+                        const dirX = tx / dist; 
+                        const dirY = ty / dist; 
+                        const dirZ = tz / dist;
 
-                    // 2. Phóng to nhẹ toàn bộ mô hình (Pulse)
-                    const pulse = 1.0 + Math.sin(time * 20) * 0.05 * shakeEnergy;
-                    tx *= pulse; ty *= pulse; tz *= pulse;
+                        // Càng lắc mạnh, hạt càng bung ra xa theo tia
+                        const spike = shakeEnergy * 15.0 * Math.random(); 
+                        tx += dirX * spike;
+                        ty += dirY * spike;
+                        tz += dirZ * spike;
+                    }
+                    
+                    // Rung lắc ngẫu nhiên (Noise)
+                    tx += (Math.random()-0.5) * shakeEnergy * 2;
+                    ty += (Math.random()-0.5) * shakeEnergy * 2;
+                    tz += (Math.random()-0.5) * shakeEnergy * 2;
                 }
 
-                // Nội suy vị trí (Lerp)
-                // Khi Shake, tăng tốc độ hội tụ để phản hồi nhanh hơn
-                const currentSpeed = (targetState === 'BUNNY' && shakeEnergy > 0.2) ? 0.15 : speed;
-                positions[i*3] += (tx - positions[i*3]) * currentSpeed;
-                positions[i*3+1] += (ty - positions[i*3+1]) * currentSpeed;
-                positions[i*3+2] += (tz - positions[i*3+2]) * currentSpeed;
+                // Di chuyển hạt
+                // Khi Bunny mode: dùng tốc độ nhanh hơn để phản hồi ngay lập tức
+                const lerpSpeed = (targetState === 'BUNNY') ? 0.12 : speed;
+                positions[i*3] += (tx - positions[i*3]) * lerpSpeed;
+                positions[i*3+1] += (ty - positions[i*3+1]) * lerpSpeed;
+                positions[i*3+2] += (tz - positions[i*3+2]) * lerpSpeed;
             }
             group.geometry.attributes.position.needsUpdate = true;
             
@@ -864,58 +904,43 @@
                 group.geometry.attributes.size.needsUpdate = true;
 
             } else if (targetState === 'BUNNY') {
-                group.rotation.y = 0; // Luôn nhìn thẳng
-                
-                // Lấy cường độ lắc tay (từ 0.0 đến 1.0)
                 const shakeEnergy = window.__bunnyShake || 0;
                 
-                // Breathing nhẹ (chỉ khi không lắc)
-                if (shakeEnergy < 0.1) {
-                    const breathe = 1 + Math.sin(time * 1.2) * 0.05;
-                    group.scale.set(breathe, breathe, breathe);
-                } else {
-                    group.scale.set(1, 1, 1);
-                }
-
-                // Tắt gift khi BUNNY để khỏi nhiễu (trừ khi lắc cực mạnh)
-                if (type === 'gift') {
-                    for(let i=0; i<count; i++) sizes[i] = (shakeEnergy > 0.8) ? baseSize : 0;
-                    group.geometry.attributes.size.needsUpdate = true;
-                    return;
-                }
-
-                // Màu sắc thỏ
-                const pinkMain = { r: 1.0, g: 0.85, b: 0.92 }; // Hồng phấn
-                const pinkHot  = { r: 1.0, g: 0.40, b: 0.70 }; // Hồng đậm (má/tai)
-                const eyeColor = { r: 0.2, g: 0.0, b: 0.1 };   // Mắt đen
+                group.rotation.y = Math.sin(time) * 0.1; // Thỏ đung đưa nhẹ
+                
+                // Màu sắc cơ bản (Vàng và Hồng neon như hình mẫu)
+                const colGold = { r: 1.0, g: 0.8, b: 0.4 }; // Vàng sáng
+                const colPink = { r: 1.0, g: 0.2, b: 0.5 }; // Hồng đậm
 
                 for (let i = 0; i < count; i++) {
-                    // Logic màu cơ bản
-                    let c = pinkMain;
-                    if (type === 'red') { 
-                        // Group Red dùng cho chi tiết (mắt, má)
-                        // Chia tỷ lệ: 85% đầu là má/tai, 15% cuối là mắt
-                        if (i > count * 0.85) c = eyeColor;
-                        else c = pinkHot;
-                    }
+                    // Màu sắc cơ bản
+                    let c = (type === 'gold') ? colGold : colPink;
+                    
+                    // Mắt: Một số hạt đỏ chuyển sang đen
+                    if (type === 'red' && i > count * 0.85) c = {r:0.1, g:0.0, b:0.0}; 
 
-                    // --- MAGIC GLOW KHI LẮC ---
-                    if (shakeEnergy > 0.2) {
-                        // Tăng độ sáng (Add white)
-                        const glow = shakeEnergy * 0.8;
-                        colors[i*3]   = Math.min(1, c.r + glow * Math.sin(time*10 + phases[i]));
-                        colors[i*3+1] = Math.min(1, c.g + glow * Math.cos(time*5 + phases[i])); 
-                        colors[i*3+2] = Math.min(1, c.b + glow);
+                    // HIỆU ỨNG PHÁT SÁNG KHI LẮC
+                    if (shakeEnergy > 0.1) {
+                        // Chuyển sang màu trắng sáng rực rỡ
+                        const flash = shakeEnergy * 0.8; // Cường độ sáng
+                        colors[i*3]   = Math.min(1, c.r + flash);
+                        colors[i*3+1] = Math.min(1, c.g + flash);
+                        colors[i*3+2] = Math.min(1, c.b + flash);
                         
-                        // Hạt biến to nhỏ lấp lánh
-                        sizes[i] = baseSize * (0.8 + shakeEnergy * 0.3 * Math.random());
+                        // Hạt to lên
+                        sizes[i] = baseSize * (1.0 + shakeEnergy * 1.5);
                     } else {
-                        // Trạng thái tĩnh
-                        colors[i*3]   = c.r; 
-                        colors[i*3+1] = c.g; 
-                        colors[i*3+2] = c.b;
-                        sizes[i] = baseSize * 0.8; // Thỏ mịn hơn thì hạt nhỏ lại chút
+                        // Bình thường
+                        colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+                        sizes[i] = baseSize;
                     }
+                }
+
+                // Ẩn hạt quà khi đang là Thỏ để đỡ rối
+                if (type === 'gift') {
+                    // Chỉ hiện quà khi lắc RẤT mạnh (như phần thưởng rơi ra)
+                    const visibleScale = (shakeEnergy > 0.8) ? 1 : 0;
+                    for(let j=0; j<sizes.length; j++) sizes[j] *= visibleScale;
                 }
 
                 group.geometry.attributes.size.needsUpdate = true;
