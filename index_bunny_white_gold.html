@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Christmas - Final Clean</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Postprocessing (Bloom) for glitter look -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000000; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100%; height: 100vh; display: block; }
+        
+        /* UI Center Vandiep */
+        #ui-layer {
+            position: absolute; bottom: 30px; width: 100%;
+            text-align: center; pointer-events: none; z-index: 100;
+        }
+        
+        /* Guide text Vandiep */
+        .guide { 
+            color: rgba(255, 255, 255, 0.6); 
+            font-size: 13px; 
+            margin-bottom: 20px; 
+            text-shadow: 0 2px 4px black;
+        }
+
+        button {
+            pointer-events: auto; cursor: pointer;
+            background: linear-gradient(to bottom, #D32F2F, #8B0000); 
+            color: #FFF; border: 2px solid #FFD700;
+            padding: 15px 50px; border-radius: 30px; 
+            font-weight: 800; font-size: 16px;
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.6);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        /* Camera Preview Vandiep */
+        #camera-preview {
+            position: absolute; top: 15px; right: 15px;
+            width: 120px; height: 90px;
+            border: 2px solid rgba(255,0,0,0.5); 
+            transform: scaleX(-1); opacity: 0.6; border-radius: 8px;
+        }
+        
+        /* Vandiep */
+        #copyright {
+            position: absolute;
+            bottom: 10px;
+            right: 15px;
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 12px;
+            z-index: 100;
+            font-family: sans-serif;
+            pointer-events: none;
+            font-style: italic;
+        }
+
+        #error-log { display: none; position: absolute; top: 0; left: 0; color: red; background: rgba(0,0,0,0.8); z-index: 999; padding: 10px; }
+    </style>
+</head>
+<body>
+    <div id="error-log"></div>
+    
+    <!-- UI Vandiep -->
+    <div id="ui-layer">
+        <!-- Vandiep -->
+        <div class="guide">
+            🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✌️ <b>V-sign:</b> Bunny &nbsp;|&nbsp; 🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 👌 <b>Pinch:</b> Photo &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree
+        </div>
+        <button id="btnStart" onclick="startSystem()">START MAGIC</button>
+    </div>
+
+    <!-- Vandiep -->
+    <div id="copyright">© by vandiep</div>
+
+    <div id="canvas-container"></div>
+    <video class="input_video" style="display:none"></video>
+    <canvas id="camera-preview"></canvas>
+
+    <script>
+        // ==========================================
+        // 1. RESOURCES CONFIG Vandiep
+        // ==========================================
+        const MUSIC_URL = "./audio.mp3";
+        let bgMusic = new Audio(MUSIC_URL);
+        bgMusic.loop = true; bgMusic.volume = 1.0;
+
+        const loader = new THREE.TextureLoader();
+        const photoFiles = [
+            './new/2025-08-03_100556647.jpeg',
+            './new/2025-08-03_100618196.jpeg',
+            './new/2025-08-03_100636558.jpeg',
+            './new/2025-08-03_100649534.jpeg',
+            './new/2025-08-03_100655948.jpeg',
+            './new/2025-08-03_100709052.jpeg',
+            './new/2025-08-03_100715637.jpeg'
+        ];
+        const photoTextures = [];
+        photoFiles.forEach((f, i) => photoTextures[i] = loader.load(f));
+
+        function createCustomTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const cx = 64, cy = 64;
+
+            if (type === 'gold_glow') {
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+                grd.addColorStop(0, '#FFFFFF'); 
+                grd.addColorStop(0.2, '#FFFFE0'); 
+                grd.addColorStop(0.5, '#FFD700');
+                grd.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
+
+            } else if (type === 'red_light') {
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 50);
+                grd.addColorStop(0, '#FFAAAA'); 
+                grd.addColorStop(0.3, '#FF0000'); 
+                grd.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
+
+            } else if (type === 'gift_red') {
+                ctx.fillStyle = '#D32F2F'; ctx.fillRect(20, 20, 88, 88);
+                ctx.fillStyle = '#FFD700'; ctx.fillRect(54, 20, 20, 88); ctx.fillRect(20, 54, 88, 20);
+                ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth=2; ctx.strokeRect(20,20,88,88);
+            } else if (type === 'sparkle') {
+                // Glitter point: crisp core + warm halo (white-gold)
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
+                grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.06, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.16, 'rgba(255,248,230,0.95)');  // warm-white
+                grd.addColorStop(0.42, 'rgba(255,215,160,0.35)');  // soft gold halo
+                grd.addColorStop(1.00, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
+
+            } else if (type === 'soft_dot') {
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
+                grd.addColorStop(0, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.2, 'rgba(255,255,255,0.9)');
+                grd.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+                grd.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
+            }
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const textures = {
+            gold: createCustomTexture('gold_glow'),
+            red: createCustomTexture('red_light'),
+            gift: createCustomTexture('gift_red'),
+            dot: createCustomTexture('soft_dot'),
+            sparkle: createCustomTexture('sparkle')
+        };
+
+        // ==========================================
+        // 2. SYSTEM CONFIG Vandiep
+        // ==========================================
+        const CONFIG = {
+            goldCount: 4800,
+            redCount: 900,
+            giftCount: 150,
+            explodeRadius: 65,  
+            photoOrbitRadius: 25,
+            treeHeight: 70,
+            treeBaseRadius: 35
+        };
+
+        let scene, camera, renderer, composer, bloomPass;
+        let groupGold, groupRed, groupGift; 
+        let photoMeshes = [];    
+        let titleMesh, starMesh, loveMesh;
+        let dustSystem;
+        
+        let state = 'TREE'; 
+        let selectedIndex = 0;
+        let handX = 0.5;
+
+        // ==========================================
+        // 2.5. BUNNY TARGET GENERATION V4 (SDF + smooth union - smooth like heart)
+        // ==========================================
+        // --- SDF helpers ---
+        function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+
+        function sdfCircle(x, y, cx, cy, r){
+            const dx = x - cx, dy = y - cy;
+            return Math.hypot(dx, dy) - r;
+        }
+
+        function sdfCapsule(x, y, ax, ay, bx, by, r){
+            const pax = x - ax, pay = y - ay;
+            const bax = bx - ax, bay = by - ay;
+            const h = clamp01((pax*bax + pay*bay) / (bax*bax + bay*bay));
+            const dx = pax - bax*h, dy = pay - bay*h;
+            return Math.hypot(dx, dy) - r;
+        }
+
+        function smoothMin(a, b, k){
+            const h = clamp01(0.5 + 0.5*(b - a)/k);
+            return (1 - h)*b + h*a - k*h*(1 - h);
+        }
+
+        // ==========================================
+        // 2.5. FAT 3D BUNNY GENERATION (Giống hình mẫu)
+        // ==========================================
+
+        // Hàm trộn mềm các khối 3D (để nách, cổ thỏ trông mượt mà)
+        function smin(a, b, k) {
+            const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k));
+            return (1 - h) * b + h * a - k * h * (1 - h);
+        }
+
+        // Hàm tính khoảng cách đến hình con nhộng (cho tai, tay)
+        function sdCapsule3D(p, a, b, r) {
+            const pa = new THREE.Vector3().subVectors(p, a);
+            const ba = new THREE.Vector3().subVectors(b, a);
+            const baLenSq = ba.lengthSq();
+            if (baLenSq < 0.0001) return pa.length() - r;
+            const h = Math.max(0, Math.min(1, pa.dot(ba) / baLenSq));
+            const baScaled = ba.clone().multiplyScalar(h);
+            const paMinusScaled = pa.clone().sub(baScaled);
+            return paMinusScaled.length() - r;
+        }
+
+        // 1. TẠO HÌNH DÁNG THỎ BÉO (FULL BODY 3D)
+        function sdfBunny3D(p) {
+            // p là Vector3 (x,y,z)
+            
+            // A. THÂN (BODY): Hình cầu to ở dưới, hơi dẹt
+            const bodyPos = new THREE.Vector3(0, -0.45, 0);
+            // Kéo dẹt trục Y một chút cho béo
+            const pBody = new THREE.Vector3(p.x, (p.y - bodyPos.y) * 0.9, p.z * 0.9); 
+            const dBody = pBody.length() - 0.60;
+
+            // B. ĐẦU (HEAD): Hình cầu nhỏ hơn ở trên
+            const headPos = new THREE.Vector3(0, 0.35, 0.1); // Đầu hơi nhô ra trước
+            const dHead = p.distanceTo(headPos) - 0.42;
+
+            // Trộn Đầu + Thân
+            let d = smin(dBody, dHead, 0.15);
+
+            // C. TAI (EARS): Hai hình con nhộng dài
+            // Tai phải
+            const earR_A = new THREE.Vector3(0.25, 0.65, 0.1); // Chân tai
+            const earR_B = new THREE.Vector3(0.40, 1.2, 0.1);  // Đỉnh tai
+            const dEarR = sdCapsule3D(p, earR_A, earR_B, 0.14);
+            
+            // Tai trái (Đối xứng qua trục X)
+            const earL_A = new THREE.Vector3(-0.25, 0.65, 0.1);
+            const earL_B = new THREE.Vector3(-0.40, 1.2, 0.1);
+            const dEarL = sdCapsule3D(p, earL_A, earL_B, 0.14);
+
+            d = smin(d, dEarR, 0.08);
+            d = smin(d, dEarL, 0.08);
+
+            // D. CHÂN & TAY (LIMBS): Cho giống gấu bông
+            // Chân phải
+            const footR = p.distanceTo(new THREE.Vector3(0.3, -0.9, 0.3)) - 0.15;
+            const footL = p.distanceTo(new THREE.Vector3(-0.3, -0.9, 0.3)) - 0.15;
+            // Tay ngắn
+            const armR = sdCapsule3D(p, new THREE.Vector3(0.45, -0.3, 0.1), new THREE.Vector3(0.6, -0.5, 0.2), 0.12);
+            const armL = sdCapsule3D(p, new THREE.Vector3(-0.45, -0.3, 0.1), new THREE.Vector3(-0.6, -0.5, 0.2), 0.12);
+
+            d = smin(d, footR, 0.1);
+            d = smin(d, footL, 0.1);
+            d = smin(d, armR, 0.1);
+            d = smin(d, armL, 0.1);
+
+            // E. ĐUÔI (TAIL): Cục bông nhỏ sau lưng
+            const tail = p.distanceTo(new THREE.Vector3(0, -0.7, -0.5)) - 0.15;
+            d = smin(d, tail, 0.1);
+
+            return d; // Giá trị âm nghĩa là bên trong khối thỏ
+        }
+
+        // 2. CHI TIẾT MÀU ĐỎ (MÁ & LÒNG TAI)
+        function sdfBunnyDetails3D(p) {
+            // Má hồng (Cheeks)
+            const cheekR = p.distanceTo(new THREE.Vector3(0.35, 0.25, 0.45)) - 0.12;
+            const cheekL = p.distanceTo(new THREE.Vector3(-0.35, 0.25, 0.45)) - 0.12;
+            
+            // Lòng tai (Inner Ears) - Nhỏ hơn tai chính một chút
+            const earInR = sdCapsule3D(p, new THREE.Vector3(0.25, 0.65, 0.18), new THREE.Vector3(0.40, 1.1, 0.18), 0.06);
+            const earInL = sdCapsule3D(p, new THREE.Vector3(-0.25, 0.65, 0.18), new THREE.Vector3(-0.40, 1.1, 0.18), 0.06);
+
+            let d = Math.min(cheekR, cheekL);
+            d = Math.min(d, earInR);
+            d = Math.min(d, earInL);
+            return d;
+        }
+
+        // 3. GENERATOR 3D THỰC SỰ (Sampling trong khối hộp)
+        function generateFromSDF3D(count, sdfFn, scale, opts = {}) {
+            // Edge-biased 3D sampling from SDF (glitter silhouette like reference image)
+            // - More points near the surface (edgeBias)
+            // - Still keeps some interior fill (fillRatio) so bunny looks "fat"
+            const {
+                boxSize = 1.6,
+                zScale = 0.8,
+                edgeBias = 3.0,     // bigger => denser near surface
+                fillRatio = 0.25,   // 0..1 interior fill proportion
+                margin = 0.03,      // include a thin band around surface
+                jitter = 0.03       // micro jitter to avoid banding
+            } = opts;
+
+            const out = new Float32Array(count * 3);
+            let i = 0;
+            const vec = new THREE.Vector3();
+            let guard = 0;
+
+            while (i < count && guard < count * 120) {
+                guard++;
+
+                // Sample random point in a 3D box
+                const x = (Math.random() * 2 - 1) * boxSize;
+                const y = (Math.random() * 2 - 1) * boxSize;
+                const z = (Math.random() * 2 - 1) * boxSize * zScale;
+
+                vec.set(x, y, z);
+                const dist = sdfFn(vec); // negative inside
+
+                // Keep only inside (plus a small surface margin for a brighter edge)
+                if (dist > margin) continue;
+
+                // Edge-biased acceptance: near surface dist ~ 0 => exp(dist*k) ~ 1
+                // deep inside dist very negative => exp(dist*k) -> small
+                const edgeChance = Math.exp(dist * edgeBias);
+
+                // Mix: mostly edge points + some interior fill
+                const accept = (Math.random() < fillRatio) ? (dist < 0) : (Math.random() < edgeChance);
+                if (!accept) continue;
+
+                out[i*3]   = (x + (Math.random()-0.5)*jitter) * 40 * scale;
+                out[i*3+1] = (y + (Math.random()-0.5)*jitter) * 40 * scale;
+                out[i*3+2] = (z + (Math.random()-0.5)*jitter) * 40 * scale;
+                i++;
+            }
+            return out;
+        }
+
+        // Legacy function - replaced by generateFromSDF
+        function generateBunnySilhouette(count, {
+            scale = 0.75,
+            zJitter = 0.6,
+            edgeBand = 0.08,
+            mixEdge = 0.55
+        } = {}) {
+            const out = new Float32Array(count * 3);
+
+            function insideHead(x, y) {
+                const cx = 0, cy = -0.15, rx = 0.70, ry = 0.55;
+                const dx = (x - cx) / rx;
+                const dy = (y - cy) / ry;
+                return dx*dx + dy*dy <= 1;
+            }
+
+            function insideCapsule(x, y, ax, ay, bx, by, r) {
+                const pax = x - ax, pay = y - ay;
+                const bax = bx - ax, bay = by - ay;
+                const h = Math.max(0, Math.min(1, (pax*bax + pay*bay) / (bax*bax + bay*bay)));
+                const dx = pax - bax*h, dy = pay - bay*h;
+                return (dx*dx + dy*dy) <= r*r;
+            }
+
+            function insideEars(x, y) {
+                const left  = insideCapsule(x, y, -0.35, 0.05, -0.35, 0.95, 0.13);
+                const right = insideCapsule(x, y,  0.35, 0.05,  0.35, 0.95, 0.13);
+                return left || right;
+            }
+
+            function insideBunny(x, y) {
+                return insideHead(x,y) || insideEars(x,y);
+            }
+
+            function nearEdge(x, y) {
+                if (!insideBunny(x,y)) return false;
+                const e = edgeBand;
+                return (
+                    !insideBunny(x+e,y) || !insideBunny(x-e,y) ||
+                    !insideBunny(x,y+e) || !insideBunny(x,y-e)
+                );
+            }
+
+            let i = 0;
+            while (i < count) {
+                let x = (Math.random()*2 - 1) * 1.0;
+                let y = (Math.random()*2 - 1) * 1.1;
+
+                const wantEdge = Math.random() < mixEdge;
+
+                if (wantEdge) {
+                    if (!nearEdge(x,y)) continue;
+                } else {
+                    if (!insideBunny(x,y)) continue;
+                }
+
+                const S = 35 * scale;
+                out[i*3+0] = x * S;
+                out[i*3+1] = y * S;
+                out[i*3+2] = (Math.random()-0.5) * zJitter;
+                i++;
+            }
+            return out;
+        }
+
+        function generateBunnyDetailsSilhouette(count, { scale=0.73, zJitter=0.5 } = {}) {
+            const out = new Float32Array(count*3);
+
+            function insideEllipse(x,y,cx,cy,rx,ry){
+                const dx=(x-cx)/rx, dy=(y-cy)/ry;
+                return dx*dx+dy*dy<=1;
+            }
+            function insideCapsule(x, y, ax, ay, bx, by, r) {
+                const pax = x - ax, pay = y - ay;
+                const bax = bx - ax, bay = by - ay;
+                const h = Math.max(0, Math.min(1, (pax*bax + pay*bay) / (bax*bax + bay*bay)));
+                const dx = pax - bax*h, dy = pay - bay*h;
+                return (dx*dx + dy*dy) <= r*r;
+            }
+
+            function insideInnerEars(x,y){
+                const l = insideCapsule(x,y,-0.35,0.18,-0.35,0.85,0.07);
+                const r = insideCapsule(x,y, 0.35,0.18, 0.35,0.85,0.07);
+                return l||r;
+            }
+
+            function insideCheeks(x,y){
+                const l = insideEllipse(x,y,-0.32,-0.18,0.14,0.10);
+                const r = insideEllipse(x,y, 0.32,-0.18,0.14,0.10);
+                return l||r;
+            }
+
+            function insideEyes(x,y){
+                const l = insideEllipse(x,y,-0.22,-0.02,0.07,0.07);
+                const r = insideEllipse(x,y, 0.22,-0.02,0.07,0.07);
+                return l||r;
+            }
+
+            function insideDetails(x,y){
+                return insideInnerEars(x,y) || insideCheeks(x,y) || insideEyes(x,y);
+            }
+
+            let i=0;
+            while(i<count){
+                const x=(Math.random()*2-1)*1.0;
+                const y=(Math.random()*2-1)*1.1;
+                if(!insideDetails(x,y)) continue;
+                const S=35*scale;
+                out[i*3]=x*S;
+                out[i*3+1]=y*S;
+                out[i*3+2]=(Math.random()-0.5)*zJitter;
+                i++;
+            }
+            return out;
+        }
+
+        // Legacy function - replaced by generateBunnySilhouette
+        function bunnyShapeV2(count, opts = {}) {
+            const {
+                scale = 0.82,
+                zJitter = 1.2,
+                edgeBias = 0.22,
+                headRx = 28,
+                headRy = 24,
+                earH = 28,
+                earW = 9,
+                earGap = 14,
+                headYOffset = -6,
+                n = 2.6
+            } = opts;
+
+            const out = new Float32Array(count * 3);
+            const rand = () => Math.random();
+            const rands = () => (Math.random() - 0.5) * 2;
+
+            function sampleSuperEllipse(a, b) {
+                while (true) {
+                    const u = Math.pow(rand(), 1 - edgeBias);
+                    const x = rands() * a * Math.sqrt(u);
+                    const y = rands() * b * Math.sqrt(u);
+                    const v = Math.pow(Math.abs(x / a), n) + Math.pow(Math.abs(y / b), n);
+                    if (v <= 1) return [x, y];
+                }
+            }
+
+            function sampleEar(cx, cy, w, h) {
+                const t = rand();
+                if (t < 0.65) {
+                    const x = rands() * w * (0.7 + 0.3 * rand());
+                    const y = rand() * h * 0.85;
+                    return [cx + x, cy + y];
+                } else {
+                    const ang = rand() * Math.PI;
+                    const rr = (w * 0.95) * Math.sqrt(Math.pow(rand(), 1 - edgeBias));
+                    const x = rr * Math.cos(ang);
+                    const y = (h * 0.85) + rr * Math.sin(ang);
+                    return [cx + x, cy + y];
+                }
+            }
+
+            const headCount = Math.floor(count * 0.78);
+            const earCount = count - headCount;
+            const earEach = Math.floor(earCount / 2);
+
+            for (let i = 0; i < headCount; i++) {
+                const [x, y] = sampleSuperEllipse(headRx, headRy);
+                out[i * 3 + 0] = x * scale;
+                out[i * 3 + 1] = (y + headYOffset) * scale;
+                out[i * 3 + 2] = rands() * zJitter;
+            }
+
+            const earY = headRy + headYOffset - 2;
+            for (let j = 0; j < earEach; j++) {
+                const [x, y] = sampleEar(-earGap, earY, earW, earH);
+                const idx = headCount + j;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
+            }
+            for (let j = 0; j < earEach; j++) {
+                const [x, y] = sampleEar(earGap, earY, earW, earH);
+                const idx = headCount + earEach + j;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
+            }
+
+            for (let k = headCount + earEach * 2; k < count; k++) {
+                const [x, y] = sampleSuperEllipse(headRx, headRy);
+                out[k * 3 + 0] = x * scale;
+                out[k * 3 + 1] = (y + headYOffset) * scale;
+                out[k * 3 + 2] = rands() * zJitter;
+            }
+
+            return out;
+        }
+
+        function bunnyDetailsV2(count, opts = {}) {
+            const {
+                scale = 0.80,
+                zJitter = 0.7,
+                earH = 28,
+                earGap = 14,
+                headRy = 24,
+                headYOffset = -6,
+            } = opts;
+
+            const out = new Float32Array(count * 3);
+            const rand = () => Math.random();
+            const rands = () => (Math.random() - 0.5) * 2;
+
+            function sampleBlob(cx, cy, rx, ry) {
+                const t = rand() * Math.PI * 2;
+                const r = Math.sqrt(rand());
+                return [cx + Math.cos(t) * rx * r, cy + Math.sin(t) * ry * r];
+            }
+
+            const innerEarCount = Math.floor(count * 0.5);
+            const cheekCount = Math.floor(count * 0.3);
+            const eyeCount = count - innerEarCount - cheekCount;
+
+            const earY = headRy + headYOffset - 2;
+
+            for (let i = 0; i < innerEarCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const cx = side * earGap;
+                const [x, y] = sampleBlob(cx, earY + earH * 0.55, 5.5, earH * 0.30);
+                out[i * 3 + 0] = x * scale;
+                out[i * 3 + 1] = y * scale;
+                out[i * 3 + 2] = rands() * zJitter;
+            }
+
+            const cheekY = headYOffset + 0;
+            for (let i = 0; i < cheekCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const [x, y] = sampleBlob(side * 14, cheekY, 6.0, 4.0);
+                const idx = innerEarCount + i;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
+            }
+
+            const eyeY = headYOffset + 7;
+            for (let i = 0; i < eyeCount; i++) {
+                const side = (i % 2 === 0) ? -1 : 1;
+                const [x, y] = sampleBlob(side * 10, eyeY, 3.0, 3.0);
+                const idx = innerEarCount + cheekCount + i;
+                out[idx * 3 + 0] = x * scale;
+                out[idx * 3 + 1] = y * scale;
+                out[idx * 3 + 2] = rands() * zJitter;
+            }
+
+            return out;
+        }
+
+        // ==========================================
+        // 3. THREE.JS SYSTEM Vandiep
+        // ==========================================
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000000, 0.002);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            camera.position.z = 100;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            // Better highlight rolloff for glitter particles
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.18;
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // Bloom makes particles look like white-gold glitter
+            composer = new THREE.EffectComposer(renderer);
+            const renderPass = new THREE.RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.35,  // strength
+                0.75,  // radius
+                0.08   // threshold (higher => less "bệt")
+            );
+            composer.addPass(bloomPass);
+
+            groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
+            groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
+            groupGift = createParticleSystem('gift', CONFIG.giftCount, 3.0); 
+
+            // TẠO MODEL THỎ 3D BÉO (FULL BODY)
+            // Group Gold: Thân hình chính
+            groupGold.geometry.userData.bunny = generateFromSDF3D(
+                CONFIG.goldCount,
+                sdfBunny3D,
+                0.90,
+                { edgeBias: 3.4, fillRatio: 0.22, margin: 0.035, jitter: 0.02 }
+            );
+            
+            // Group Red: Chi tiết (Má, Tai trong)
+            groupRed.geometry.userData.bunny = generateFromSDF3D(
+                CONFIG.redCount,
+                sdfBunnyDetails3D,
+                0.90,
+                { edgeBias: 2.2, fillRatio: 0.10, margin: 0.025, jitter: 0.02 }
+            );
+            
+            // Gift: dùng explode target (sẽ tắt khi BUNNY, chỉ hiện khi lắc cực mạnh)
+            groupGift.geometry.userData.bunny = groupGift.geometry.userData.explode;
+
+            // Create dust system for magic rain
+            dustSystem = createDustSystem(1200);
+
+            createPhotos();
+            createDecorations();
+            animate();
+        }
+
+        function createParticleSystem(type, count, size) {
+            const pPositions = [];
+            const pExplodeTargets = [];
+            const pTreeTargets = [];
+            const pHeartTargets = [];
+            const sizes = []; 
+            const phases = []; 
+            
+            for(let i=0; i<count; i++) {
+                // --- TREE Vandiep ---
+                const h = Math.random() * CONFIG.treeHeight; 
+                const y = h - CONFIG.treeHeight / 2;
+                let radiusRatio = (type === 'gold') ? Math.sqrt(Math.random()) : 0.9 + Math.random()*0.1;
+                const maxR = (1 - (h / CONFIG.treeHeight)) * CONFIG.treeBaseRadius;
+                const r = maxR * radiusRatio; 
+                const theta = Math.random() * Math.PI * 2;
+                pTreeTargets.push(r * Math.cos(theta), y, r * Math.sin(theta));
+
+                // --- EXPLODE Vandiep ---
+                const u = Math.random();
+                const v = Math.random();
+                const phi = Math.acos(2 * v - 1);
+                const lam = 2 * Math.PI * u;
+                let radMult = (type === 'gift') ? 1.2 : 1.0;
+                const rad = CONFIG.explodeRadius * Math.cbrt(Math.random()) * radMult;
+                pExplodeTargets.push(rad * Math.sin(phi) * Math.cos(lam), rad * Math.sin(phi) * Math.sin(lam), rad * Math.cos(phi));
+
+                // --- SOFT HEART Vandiep ---
+                const tHeart = Math.random() * Math.PI * 2;
+                let hx = 16 * Math.pow(Math.sin(tHeart), 3);
+                let hy = 13 * Math.cos(tHeart) - 5 * Math.cos(2*tHeart) - 2 * Math.cos(3*tHeart) - Math.cos(4*tHeart);
+                
+                const rFill = Math.pow(Math.random(), 0.3); // Soft fill Vandiep
+                hx *= rFill; hy *= rFill;
+                let hz = (Math.random() - 0.5) * 8 * rFill; 
+                
+                const noise = 1.0;
+                hx += (Math.random() - 0.5) * noise;
+                hy += (Math.random() - 0.5) * noise;
+                hz += (Math.random() - 0.5) * noise;
+
+                const scaleH = 2.2;
+                pHeartTargets.push(hx * scaleH, hy * scaleH + 5, hz); 
+
+                // --- INIT Vandiep ---
+                pPositions.push(pTreeTargets[i*3], pTreeTargets[i*3+1], pTreeTargets[i*3+2]);
+                sizes.push(size);
+                phases.push(Math.random() * Math.PI * 2);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pPositions, 3));
+            geo.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            
+            // Init colors Vandiep
+            const colors = new Float32Array(count * 3);
+            const baseColor = new THREE.Color();
+            if(type === 'gold') baseColor.setHex(0xFFD700);
+            else if(type === 'red') baseColor.setHex(0xFF0000);
+            else baseColor.setHex(0xFFFFFF);
+
+            for(let i=0; i<count; i++) {
+                colors[i*3] = baseColor.r;
+                colors[i*3+1] = baseColor.g;
+                colors[i*3+2] = baseColor.b;
+            }
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            geo.userData = { 
+                tree: pTreeTargets, explode: pExplodeTargets, heart: pHeartTargets, 
+                phases: phases, baseColor: baseColor, baseSize: size
+            };
+
+            // Use soft dot texture for gold and red (smooth like heart), gift uses its own texture
+            const textureMap = (type === 'gold' || type === 'red') ? textures.sparkle : textures[type];
+            
+            const mat = new THREE.PointsMaterial({
+                size: size,
+                map: textureMap,
+                transparent: true, opacity: 1.0,
+                vertexColors: true, 
+                blending: (type === 'gift') ? THREE.NormalBlending : THREE.AdditiveBlending, 
+                depthWrite: false,
+                sizeAttenuation: true
+            });
+
+            const points = new THREE.Points(geo, mat);
+            scene.add(points);
+            return points;
+        }
+
+        function createPhotos() {
+            const geo = new THREE.PlaneGeometry(8, 8);
+            const borderGeo = new THREE.PlaneGeometry(9, 9); 
+            const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
+
+            for(let i=0; i<photoFiles.length; i++) {
+                const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
+                const mesh = new THREE.Mesh(geo, mat);
+                const border = new THREE.Mesh(borderGeo, borderMat);
+                border.position.z = -0.1; 
+                mesh.add(border);
+                mesh.visible = false; mesh.scale.set(0,0,0);
+                scene.add(mesh);
+                photoMeshes.push(mesh);
+            }
+        }
+
+        function createDustSystem(maxCount = 1200) {
+            const geo = new THREE.BufferGeometry();
+            const pos = new Float32Array(maxCount * 3);
+            const vel = new Float32Array(maxCount * 3);
+            const life = new Float32Array(maxCount);
+            const size = new Float32Array(maxCount);
+
+            for (let i=0; i<maxCount; i++){
+                life[i] = 0;
+                size[i] = 1.2;
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
+            geo.userData = { vel, life, maxCount, cursor: 0 };
+
+            const mat = new THREE.PointsMaterial({
+                size: 1.4,
+                map: textures.gold,
+                transparent: true,
+                opacity: 0.25,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true
+            });
+
+            const pts = new THREE.Points(geo, mat);
+            scene.add(pts);
+            return pts;
+        }
+
+        function createDecorations() {
+            // MERRY CHRISTMAS Vandiep
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'bold italic 90px "Times New Roman"';
+            ctx.fillStyle = '#FFD700'; ctx.textAlign = 'center';
+            ctx.shadowColor = "#FF0000"; ctx.shadowBlur = 40; 
+            ctx.fillText("MERRY CHRISTMAS", 512, 130);
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending });
+            titleMesh = new THREE.Mesh(new THREE.PlaneGeometry(60, 15), mat);
+            titleMesh.position.set(0, 50, 0);
+            scene.add(titleMesh);
+
+            // STAR Vandiep
+            const starCanvas = document.createElement('canvas');
+            starCanvas.width = 128; starCanvas.height = 128;
+            const sCtx = starCanvas.getContext('2d');
+            sCtx.fillStyle = "#FFFF00"; sCtx.shadowColor="#FFF"; sCtx.shadowBlur=20;
+            sCtx.beginPath();
+            const cx=64, cy=64, outer=50, inner=20;
+            for(let i=0; i<5; i++){
+                sCtx.lineTo(cx + Math.cos((18+i*72)/180*Math.PI)*outer, cy - Math.sin((18+i*72)/180*Math.PI)*outer);
+                sCtx.lineTo(cx + Math.cos((54+i*72)/180*Math.PI)*inner, cy - Math.sin((54+i*72)/180*Math.PI)*inner);
+            }
+            sCtx.closePath(); sCtx.fill();
+            const starTex = new THREE.CanvasTexture(starCanvas);
+            const starMat = new THREE.MeshBasicMaterial({ map: starTex, transparent: true, blending: THREE.AdditiveBlending });
+            starMesh = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), starMat);
+            starMesh.position.set(0, CONFIG.treeHeight/2 + 2, 0);
+            scene.add(starMesh);
+
+            // I LOVE YOU TEXT Vandiep
+            const loveCanvas = document.createElement('canvas');
+            loveCanvas.width = 1024; loveCanvas.height = 256;
+            const lCtx = loveCanvas.getContext('2d');
+            lCtx.font = 'bold 120px "Segoe UI", sans-serif';
+            lCtx.fillStyle = '#FF69B4'; lCtx.textAlign = 'center';
+            lCtx.shadowColor = "#FF1493"; lCtx.shadowBlur = 40; 
+            lCtx.fillText("I LOVE YOU ❤️", 512, 130);
+            const loveTex = new THREE.CanvasTexture(loveCanvas);
+            const loveMat = new THREE.MeshBasicMaterial({ map: loveTex, transparent: true, blending: THREE.AdditiveBlending });
+            loveMesh = new THREE.Mesh(new THREE.PlaneGeometry(70, 18), loveMat);
+            loveMesh.position.set(0, 0, 20);
+            loveMesh.visible = false;
+            scene.add(loveMesh);
+        }
+
+        function updateParticleGroup(group, type, targetState, speed, handRotY, time) {
+            const positions = group.geometry.attributes.position.array;
+            const sizes = group.geometry.attributes.size.array;
+            const colors = group.geometry.attributes.color.array;
+            const phases = group.geometry.userData.phases;
+            const baseColor = group.geometry.userData.baseColor;
+            const baseSize = group.geometry.userData.baseSize;
+            
+            let targetKey;
+            if (targetState === 'TREE') targetKey = 'tree';
+            else if (targetState === 'HEART') targetKey = 'heart';
+            else if (targetState === 'BUNNY') targetKey = 'bunny';
+            else targetKey = 'explode';
+
+            // Fallback nếu không có bunny target cho group Gift
+            let targets = group.geometry.userData[targetKey];
+            if (!targets && targetKey === 'bunny') targets = group.geometry.userData.explode; 
+            if (!targets) targets = group.geometry.userData.explode;
+            if (targetState === 'PHOTO') targets = group.geometry.userData.explode;
+
+            const shakeEnergy = window.__bunnyShake || 0;
+            const count = positions.length / 3;
+
+            // --- LOGIC MÀU SẮC THỎ (TRẮNG–VÀNG GLITTER) ---
+            // Warm-white body + soft gold accents (like reference)
+            const colWarmWhite = { r: 1.00, g: 0.97, b: 0.90 }; // trắng kem
+            const colSoftGold  = { r: 1.00, g: 0.86, b: 0.62 }; // vàng mật ong nhạt
+            const colDeepEye   = { r: 0.10, g: 0.03, b: 0.08 }; // mắt tối hơi tím
+
+            // Set rotation for different states (outside loop for efficiency)
+            if (targetState === 'BUNNY') {
+                group.rotation.y = Math.sin(time) * 0.1; // Thỏ đung đưa nhẹ
+            } else if (targetState === 'EXPLODE') {
+                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
+            } else if (targetState === 'TREE') {
+                group.rotation.y += 0.003;
+            } else {
+                group.rotation.y = 0;
+            }
+
+            for(let i=0; i<count; i++) {
+                let tx = targets[i*3];
+                let ty = targets[i*3+1];
+                let tz = targets[i*3+2];
+
+                // --- HIỆU ỨNG LẮC TAY (SHAKE EFFECT) ---
+                if (targetState === 'BUNNY') {
+                    // Nếu đang lắc tay:
+                    if (shakeEnergy > 0.05) {
+                        // 1. Hiệu ứng "Bung tỏa" (Firework spikes)
+                        // Đẩy hạt ra xa theo hướng từ tâm (0,0,0)
+                        const dist = Math.sqrt(tx*tx + ty*ty + tz*tz);
+                        if (dist > 0.001) {
+                            const dirX = tx / dist; 
+                            const dirY = ty / dist; 
+                            const dirZ = tz / dist;
+
+                            // Càng lắc mạnh, hạt càng bung ra xa theo tia
+                            const spike = shakeEnergy * 15.0 * Math.random(); 
+                            tx += dirX * spike;
+                            ty += dirY * spike;
+                            tz += dirZ * spike;
+                        }
+                        
+                        // Rung lắc ngẫu nhiên (Noise)
+                        tx += (Math.random()-0.5) * shakeEnergy * 2;
+                        ty += (Math.random()-0.5) * shakeEnergy * 2;
+                    }
+                }
+
+                // Di chuyển hạt
+                // Khi Bunny mode: dùng tốc độ nhanh hơn để phản hồi ngay lập tức
+                const lerpSpeed = (targetState === 'BUNNY') ? 0.12 : speed;
+                positions[i*3] += (tx - positions[i*3]) * lerpSpeed;
+                positions[i*3+1] += (ty - positions[i*3+1]) * lerpSpeed;
+                positions[i*3+2] += (tz - positions[i*3+2]) * lerpSpeed;
+
+                // Xử lý Màu & Size
+                if (targetState === 'BUNNY') {
+                    // Base bunny colors
+                    // - Gold group: warm-white body
+                    // - Red group: soft-gold accents + a small portion as eyes
+                    let c = (type === 'gold') ? colWarmWhite : colSoftGold;
+
+                    // Eyes (a small tail of red points become dark)
+                    if (type === 'red' && i > count * 0.86) c = colDeepEye; 
+
+                    // HIỆU ỨNG PHÁT SÁNG KHI LẮC
+                    if (shakeEnergy > 0.1) {
+                        // Chuyển sang màu trắng sáng rực rỡ
+                        const flash = shakeEnergy * 0.55; // warm flash (avoid overblown white)
+                        colors[i*3]   = Math.min(1, c.r + flash);
+                        colors[i*3+1] = Math.min(1, c.g + flash);
+                        colors[i*3+2] = Math.min(1, c.b + flash*0.75);
+
+                        // Slightly larger when shaking, but still glittery
+                        sizes[i] = baseSize * (0.85 + shakeEnergy * 0.9);
+                    } else {
+                        // Bình thường
+                        colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+                        sizes[i] = baseSize * (0.70 + 0.22*(0.5 + 0.5*Math.sin(time*7 + phases[i])));
+                    }
+                } else {
+                    // Các trạng thái khác (Cây, Tim, Explode...)
+                    let brightness = 0.8 + 0.4 * Math.sin(time * 5 + phases[i]);
+                    colors[i*3] = baseColor.r * brightness;
+                    colors[i*3+1] = baseColor.g * brightness;
+                    colors[i*3+2] = baseColor.b * brightness;
+                    
+                    if (targetState === 'HEART' && i % 3 !== 0) sizes[i] = 0;
+                    else sizes[i] = baseSize;
+                }
+            }
+            
+            // Ẩn hạt quà khi đang là Thỏ để đỡ rối
+            if (targetState === 'BUNNY' && type === 'gift') {
+                // Chỉ hiện quà khi lắc RẤT mạnh (như phần thưởng rơi ra)
+                const visibleScale = (shakeEnergy > 0.8) ? 1 : 0;
+                for(let j=0; j<sizes.length; j++) sizes[j] *= visibleScale;
+            }
+            
+            // Set scale for HEART state
+            if (targetState === 'HEART') {
+                const beatScale = 1 + Math.abs(Math.sin(time * 3)) * 0.15;
+                group.scale.set(beatScale, beatScale, beatScale);
+            } else {
+                group.scale.set(1, 1, 1);
+            }
+
+            group.geometry.attributes.position.needsUpdate = true;
+            group.geometry.attributes.color.needsUpdate = true;
+            group.geometry.attributes.size.needsUpdate = true;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+            const dt = Math.min(0.033, (now - lastT) / 1000);
+            lastT = now;
+            
+            const time = Date.now() * 0.001;
+            const speed = 0.08;
+            const handRotY = (handX - 0.5) * 4.0;
+
+            updateParticleGroup(groupGold, 'gold', state, speed, handRotY, time);
+            updateParticleGroup(groupRed, 'red', state, speed, handRotY, time);
+            updateParticleGroup(groupGift, 'gift', state, speed, handRotY, time);
+
+            photoMeshes.forEach((mesh, i) => {
+                if(!mesh.material.map && photoTextures[i]) {
+                    mesh.material.map = photoTextures[i]; mesh.material.needsUpdate = true;
+                }
+            });
+
+            if (state === 'TREE') {
+                // Show gift group again when not BUNNY
+                if (groupGift) groupGift.visible = true;
+                titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
+                titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
+                starMesh.rotation.z -= 0.02; 
+                starMesh.material.opacity = 0.7 + 0.3*Math.sin(time*5);
+                photoMeshes.forEach(m => { m.scale.lerp(new THREE.Vector3(0,0,0), 0.1); m.visible = false; });
+
+            } else if (state === 'HEART') {
+                titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = true;
+                photoMeshes.forEach(m => { m.visible = false; });
+                const s = 1 + Math.abs(Math.sin(time*3))*0.1;
+                loveMesh.scale.set(s,s,1);
+
+            } else if (state === 'BUNNY') {
+                titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                photoMeshes.forEach(m => { m.visible = false; });
+                
+                const energy = window.__bunnyShake || 0;
+                if (energy > 0.10) spawnDustFromEars(energy);
+
+            } else if (state === 'EXPLODE') {
+                titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
+                const baseAngle = groupGold.rotation.y; 
+                const angleStep = (Math.PI * 2) / photoMeshes.length;
+                let bestIdx = 0; let maxZ = -999;
+                photoMeshes.forEach((mesh, i) => {
+                    mesh.visible = true;
+                    const angle = baseAngle + i * angleStep;
+                    const x = Math.sin(angle) * CONFIG.photoOrbitRadius;
+                    const z = Math.cos(angle) * CONFIG.photoOrbitRadius;
+                    const y = Math.sin(time + i) * 3; 
+                    mesh.position.lerp(new THREE.Vector3(x, y, z), 0.1);
+                    mesh.lookAt(camera.position);
+                    if (z > maxZ) { maxZ = z; bestIdx = i; }
+                    if (z > 5) { 
+                        const ds = 1.0 + (z/CONFIG.photoOrbitRadius)*0.8; 
+                        mesh.scale.lerp(new THREE.Vector3(ds, ds, ds), 0.1);
+                    } else {
+                        mesh.scale.lerp(new THREE.Vector3(0.6, 0.6, 0.6), 0.1);
+                    }
+                });
+                selectedIndex = bestIdx;
+
+            } else if (state === 'PHOTO') {
+                loveMesh.visible = false;
+                photoMeshes.forEach((mesh, i) => {
+                    if (i === selectedIndex) {
+                        mesh.position.lerp(new THREE.Vector3(0, 0, 60), 0.1);
+                        mesh.scale.lerp(new THREE.Vector3(5, 5, 5), 0.1);
+                        mesh.lookAt(camera.position); mesh.rotation.z = 0;
+                    } else {
+                        mesh.scale.lerp(new THREE.Vector3(0,0,0), 0.1);
+                    }
+                });
+            }
+            
+            updateDust(dt);
+            if (composer) composer.render(); else renderer.render(scene, camera);
+        }
+
+        // V-sign and shake detection
+        function isFingerExtended(lm, tip, pip) {
+            return lm[tip].y < lm[pip].y;
+        }
+
+        function isVSign(lm) {
+            const indexExt  = isFingerExtended(lm, 8, 6);
+            const middleExt = isFingerExtended(lm, 12, 10);
+            const ringExt   = isFingerExtended(lm, 16, 14);
+            const pinkyExt  = isFingerExtended(lm, 20, 18);
+            if (!(indexExt && middleExt)) return false;
+            if (ringExt || pinkyExt) return false;
+
+            const distIM = Math.hypot(lm[8].x - lm[12].x, lm[8].y - lm[12].y);
+            return distIM > 0.06;
+        }
+
+        let shakeEnergy = 0;
+        let lastHandX = null;
+
+        function updateShake(handX) {
+            if (lastHandX == null) { lastHandX = handX; return 0; }
+            const dx = Math.abs(handX - lastHandX);
+            lastHandX = handX;
+
+            shakeEnergy = Math.min(1, shakeEnergy * 0.85 + dx * 6.5);
+            return shakeEnergy;
+        }
+
+        // Dust spawn and update
+        function spawnDustFromEars(intensity01) {
+            if (!dustSystem) return;
+            const geo = dustSystem.geometry;
+            const pos = geo.attributes.position.array;
+            const vel = geo.userData.vel;
+            const life = geo.userData.life;
+            const max = geo.userData.maxCount;
+
+            const spawnN = Math.floor(1 + intensity01 * 7);
+
+            const s = 1.6;
+            const leftEar  = new THREE.Vector3(-12*s, (22+18)*s, 0);
+            const rightEar = new THREE.Vector3( 12*s, (22+18)*s, 0);
+
+            const drift = (handX - 0.5) * 0.8;
+
+            for (let k=0; k<spawnN; k++) {
+                const fromLeft = (k % 2 === 0);
+                const src = fromLeft ? leftEar : rightEar;
+
+                const i = geo.userData.cursor;
+                geo.userData.cursor = (i + 1) % max;
+
+                pos[i*3+0] = src.x + (Math.random()-0.5)*2.2;
+                pos[i*3+1] = src.y + (Math.random()-0.5)*2.2;
+                pos[i*3+2] = src.z + (Math.random()-0.5)*2.0;
+
+                vel[i*3+0] = drift + (Math.random()-0.5)*0.25;
+                vel[i*3+1] = -(0.35 + Math.random()*0.55);
+                vel[i*3+2] = (Math.random()-0.5)*0.20;
+
+                life[i] = 1.0 + Math.random()*0.8;
+            }
+
+            geo.attributes.position.needsUpdate = true;
+        }
+
+        let lastT = performance.now();
+
+        function updateDust(dt) {
+            if (!dustSystem) return;
+            const geo = dustSystem.geometry;
+            const pos = geo.attributes.position.array;
+            const vel = geo.userData.vel;
+            const life = geo.userData.life;
+            const max = geo.userData.maxCount;
+
+            for (let i=0; i<max; i++) {
+                if (life[i] <= 0) continue;
+
+                pos[i*3+0] += vel[i*3+0] * dt * 60;
+                pos[i*3+1] += vel[i*3+1] * dt * 60;
+                pos[i*3+2] += vel[i*3+2] * dt * 60;
+
+                vel[i*3+0] *= 0.99;
+                vel[i*3+2] *= 0.99;
+                vel[i*3+1] -= 0.003 * dt * 60;
+
+                life[i] -= dt;
+
+                if (pos[i*3+1] < -70) life[i] = 0;
+            }
+            geo.attributes.position.needsUpdate = true;
+
+            const energy = window.__bunnyShake || 0;
+            dustSystem.material.opacity = 0.25 + energy * 0.7;
+        }
+
+        function startSystem() {
+            document.getElementById('btnStart').style.display = 'none';
+            bgMusic.play().catch(e => console.log(e));
+            init3D();
+
+            const video = document.getElementsByClassName('input_video')[0];
+            const canvas = document.getElementById('camera-preview');
+            const ctx = canvas.getContext('2d');
+            
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+            hands.onResults(results => {
+                ctx.clearRect(0,0,100,75); ctx.drawImage(results.image, 0, 0, 100, 75);
+
+                // --- Hand Logic  ---
+                if (results.multiHandLandmarks.length === 2) {
+                    const h1 = results.multiHandLandmarks[0]; const h2 = results.multiHandLandmarks[1];
+                    const distIndex = Math.hypot(h1[8].x - h2[8].x, h1[8].y - h2[8].y);
+                    const distThumb = Math.hypot(h1[4].x - h2[4].x, h1[4].y - h2[4].y);
+                    if (distIndex < 0.15 && distThumb < 0.15) {
+                        state = 'HEART'; return;
+                    }
+                }
+
+                if(results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    handX = lm[9].x;
+                    
+                    const v = isVSign(lm);
+                    const energy = updateShake(handX);
+                    
+                    if (v) {
+                        state = 'BUNNY';
+                        window.__bunnyShake = energy;
+                    } else {
+                        const tips = [8,12,16,20]; const wrist = lm[0];
+                        let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
+                        const avgDist = openDist / 4;
+                        const pinchDist = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y);
+
+                        if (avgDist < 0.25) { 
+                            state = 'TREE'; 
+                        } else if (pinchDist < 0.05) {
+                            state = 'PHOTO'; 
+                        } else {
+                            state = 'EXPLODE'; 
+                        }
+                    }
+                } else {
+                    lastHandX = null;
+                    shakeEnergy = 0;
+                    window.__bunnyShake = 0;
+                    state = 'TREE'; 
+                }
+            });
+
+            const cameraUtils = new Camera(video, {
+                onFrame: async () => { await hands.send({image: video}); }, width: 320, height: 240
+            });
+            cameraUtils.start();
+        }
+
+        window.addEventListener('resize', () => {
+            if(camera) {
+                camera.aspect = window.innerWidth/window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+                if (bloomPass) bloomPass.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+</html>
+

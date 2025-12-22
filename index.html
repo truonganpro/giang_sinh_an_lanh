@@ -6,10 +6,6 @@
     <title>Magic Christmas - Final Clean</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Postprocessing (Bloom) for glitter look -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -74,7 +70,7 @@
     <div id="ui-layer">
         <!-- Vandiep -->
         <div class="guide">
-            🫶 <b>Heart:</b> Love &nbsp;|&nbsp; 🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 👌 <b>Pinch:</b> Photo &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree
+            🖐 <b>Open:</b> Explode &nbsp;|&nbsp; 🫶 <b>Heart:</b> Love &nbsp;|&nbsp; ✊ <b>Fist:</b> Tree
         </div>
         <button id="btnStart" onclick="startSystem()">START MAGIC</button>
     </div>
@@ -132,23 +128,6 @@
                 ctx.fillStyle = '#D32F2F'; ctx.fillRect(20, 20, 88, 88);
                 ctx.fillStyle = '#FFD700'; ctx.fillRect(54, 20, 20, 88); ctx.fillRect(20, 54, 88, 20);
                 ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth=2; ctx.strokeRect(20,20,88,88);
-            } else if (type === 'sparkle') {
-                // Glitter point: crisp core + warm halo (white-gold)
-                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
-                grd.addColorStop(0.00, 'rgba(255,255,255,1)');
-                grd.addColorStop(0.06, 'rgba(255,255,255,1)');
-                grd.addColorStop(0.16, 'rgba(255,248,230,0.95)');  // warm-white
-                grd.addColorStop(0.42, 'rgba(255,215,160,0.35)');  // soft gold halo
-                grd.addColorStop(1.00, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
-
-            } else if (type === 'soft_dot') {
-                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
-                grd.addColorStop(0, 'rgba(255,255,255,1)');
-                grd.addColorStop(0.2, 'rgba(255,255,255,0.9)');
-                grd.addColorStop(0.6, 'rgba(255,255,255,0.25)');
-                grd.addColorStop(1, 'rgba(255,255,255,0)');
-                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
             }
             return new THREE.CanvasTexture(canvas);
         }
@@ -156,9 +135,7 @@
         const textures = {
             gold: createCustomTexture('gold_glow'),
             red: createCustomTexture('red_light'),
-            gift: createCustomTexture('gift_red'),
-            dot: createCustomTexture('soft_dot'),
-            sparkle: createCustomTexture('sparkle')
+            gift: createCustomTexture('gift_red')
         };
 
         // ==========================================
@@ -174,7 +151,7 @@
             treeBaseRadius: 35
         };
 
-        let scene, camera, renderer, composer, bloomPass;
+        let scene, camera, renderer;
         let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
         let titleMesh, starMesh, loveMesh;
@@ -182,7 +159,6 @@
         let state = 'TREE'; 
         let selectedIndex = 0;
         let handX = 0.5;
-
 
         // ==========================================
         // 3. THREE.JS SYSTEM Vandiep
@@ -196,25 +172,9 @@
             camera.position.z = 100;
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-            // Better highlight rolloff for glitter particles
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.18;
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
-
-            // Bloom makes particles look like white-gold glitter
-            composer = new THREE.EffectComposer(renderer);
-            const renderPass = new THREE.RenderPass(scene, camera);
-            composer.addPass(renderPass);
-
-            bloomPass = new THREE.UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight),
-                1.35,  // strength
-                0.75,  // radius
-                0.08   // threshold (higher => less "bệt")
-            );
-            composer.addPass(bloomPass);
 
             groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
@@ -298,12 +258,9 @@
                 phases: phases, baseColor: baseColor, baseSize: size
             };
 
-            // Use textures for particles
-            const textureMap = textures[type] || textures.dot;
-            
             const mat = new THREE.PointsMaterial({
                 size: size,
-                map: textureMap,
+                map: textures[type],
                 transparent: true, opacity: 1.0,
                 vertexColors: true, 
                 blending: (type === 'gift') ? THREE.NormalBlending : THREE.AdditiveBlending, 
@@ -321,7 +278,7 @@
             const borderGeo = new THREE.PlaneGeometry(9, 9); 
             const borderMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
 
-            for(let i=0; i<photoFiles.length; i++) {
+            for(let i=0; i<5; i++) {
                 const mat = new THREE.MeshBasicMaterial({ map: photoTextures[i], side: THREE.DoubleSide });
                 const mesh = new THREE.Mesh(geo, mat);
                 const border = new THREE.Mesh(borderGeo, borderMat);
@@ -332,7 +289,6 @@
                 photoMeshes.push(mesh);
             }
         }
-
 
         function createDecorations() {
             // MERRY CHRISTMAS Vandiep
@@ -391,65 +347,75 @@
             const baseColor = group.geometry.userData.baseColor;
             const baseSize = group.geometry.userData.baseSize;
             
-            let targetKey;
-            if (targetState === 'TREE') targetKey = 'tree';
-            else if (targetState === 'HEART') targetKey = 'heart';
-            else targetKey = 'explode';
+            const targetKey = (targetState === 'TREE') ? 'tree' : (targetState === 'HEART' ? 'heart' : 'explode');
+            const targets = group.geometry.userData[(targetState === 'PHOTO') ? 'explode' : targetKey];
 
-            let targets = group.geometry.userData[targetKey];
-            if (!targets) targets = group.geometry.userData.explode;
-            if (targetState === 'PHOTO') targets = group.geometry.userData.explode;
-
-            const count = positions.length / 3;
-
-            // Set rotation for different states (outside loop for efficiency)
-            if (targetState === 'EXPLODE') {
-                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
-            } else if (targetState === 'TREE') {
-                group.rotation.y += 0.003;
-            } else {
-                group.rotation.y = 0;
+            // 1. Vandiep
+            for(let i=0; i<positions.length; i++) {
+                positions[i] += (targets[i] - positions[i]) * speed;
             }
-
-            for(let i=0; i<count; i++) {
-                let tx = targets[i*3];
-                let ty = targets[i*3+1];
-                let tz = targets[i*3+2];
-
-                // Di chuyển hạt
-                positions[i*3] += (tx - positions[i*3]) * speed;
-                positions[i*3+1] += (ty - positions[i*3+1]) * speed;
-                positions[i*3+2] += (tz - positions[i*3+2]) * speed;
-
-                // Xử lý Màu & Size
-                let brightness = 0.8 + 0.4 * Math.sin(time * 5 + phases[i]);
-                colors[i*3] = baseColor.r * brightness;
-                colors[i*3+1] = baseColor.g * brightness;
-                colors[i*3+2] = baseColor.b * brightness;
-                
-                if (targetState === 'HEART' && i % 3 !== 0) sizes[i] = 0;
-                else sizes[i] = baseSize;
-            }
+            group.geometry.attributes.position.needsUpdate = true;
             
-            // Set scale for HEART state
-            if (targetState === 'HEART') {
+            // 2. COLOR & SIZE Vandiep
+            const count = positions.length / 3;
+            
+            if (targetState === 'TREE') {
+                group.rotation.y += 0.003;
+                
+                for(let i=0; i<count; i++) {
+                    sizes[i] = baseSize;
+                    let brightness = 1.0;
+                    if(type === 'red') {
+                        // RED
+                        brightness = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
+                    } else if(type === 'gold') {
+                        // YELLOW
+                        brightness = 0.8 + 0.4 * Math.sin(time * 10 + phases[i]);
+                    }
+                    colors[i*3]   = baseColor.r * brightness;
+                    colors[i*3+1] = baseColor.g * brightness;
+                    colors[i*3+2] = baseColor.b * brightness;
+                }
+                group.geometry.attributes.color.needsUpdate = true;
+                group.geometry.attributes.size.needsUpdate = true;
+
+            } else if (targetState === 'HEART') {
+                group.rotation.y = 0;
                 const beatScale = 1 + Math.abs(Math.sin(time * 3)) * 0.15;
                 group.scale.set(beatScale, beatScale, beatScale);
-            } else {
-                group.scale.set(1, 1, 1);
-            }
 
-            group.geometry.attributes.position.needsUpdate = true;
-            group.geometry.attributes.color.needsUpdate = true;
-            group.geometry.attributes.size.needsUpdate = true;
+                // Vandiep
+                for(let i=0; i<count; i++) {
+                    colors[i*3] = baseColor.r; colors[i*3+1] = baseColor.g; colors[i*3+2] = baseColor.b;
+                    if (i % 3 === 0) sizes[i] = baseSize;
+                    else sizes[i] = 0;
+                }
+                group.geometry.attributes.color.needsUpdate = true;
+                group.geometry.attributes.size.needsUpdate = true;
+
+            } else {
+                // EXPLODE
+                group.scale.set(1,1,1);
+                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
+
+                // size, color
+                for(let i=0; i<count; i++) {
+                    sizes[i] = baseSize;
+                    let brightness = 1.0;
+                    if(type === 'gold' || type === 'red') {
+                        brightness = 0.8 + 0.5 * Math.sin(time * 12 + phases[i]);
+                    }
+                    colors[i*3]   = baseColor.r * brightness;
+                    colors[i*3+1] = baseColor.g * brightness;
+                    colors[i*3+2] = baseColor.b * brightness;
+                }
+                group.geometry.attributes.size.needsUpdate = true;
+                group.geometry.attributes.color.needsUpdate = true;
+            }
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            const now = performance.now();
-            const dt = Math.min(0.033, (now - lastT) / 1000);
-            lastT = now;
-            
             const time = Date.now() * 0.001;
             const speed = 0.08;
             const handRotY = (handX - 0.5) * 4.0;
@@ -465,7 +431,6 @@
             });
 
             if (state === 'TREE') {
-                if (groupGift) groupGift.visible = true;
                 titleMesh.visible = true; starMesh.visible = true; loveMesh.visible = false;
                 titleMesh.scale.lerp(new THREE.Vector3(1,1,1), 0.1);
                 starMesh.rotation.z -= 0.02; 
@@ -481,7 +446,7 @@
             } else if (state === 'EXPLODE') {
                 titleMesh.visible = false; starMesh.visible = false; loveMesh.visible = false;
                 const baseAngle = groupGold.rotation.y; 
-                const angleStep = (Math.PI * 2) / photoMeshes.length;
+                const angleStep = (Math.PI * 2) / 5;
                 let bestIdx = 0; let maxZ = -999;
                 photoMeshes.forEach((mesh, i) => {
                     mesh.visible = true;
@@ -513,11 +478,8 @@
                     }
                 });
             }
-            
-            if (composer) composer.render(); else renderer.render(scene, camera);
+            renderer.render(scene, camera);
         }
-
-        let lastT = performance.now();
 
         function startSystem() {
             document.getElementById('btnStart').style.display = 'none';
@@ -546,8 +508,7 @@
 
                 if(results.multiHandLandmarks.length > 0) {
                     const lm = results.multiHandLandmarks[0];
-                    handX = lm[9].x;
-                    
+                    handX = lm[9].x; 
                     const tips = [8,12,16,20]; const wrist = lm[0];
                     let openDist = 0; tips.forEach(i => openDist += Math.hypot(lm[i].x-wrist.x, lm[i].y-wrist.y));
                     const avgDist = openDist / 4;
@@ -572,16 +533,8 @@
         }
 
         window.addEventListener('resize', () => {
-            if(camera) {
-                camera.aspect = window.innerWidth/window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                if (composer) composer.setSize(window.innerWidth, window.innerHeight);
-                if (bloomPass) bloomPass.setSize(window.innerWidth, window.innerHeight);
-            }
+            if(camera) { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
         });
     </script>
 </body>
 </html>
-
-<!-- Updated at Mon Dec 22 15:19:13 +07 2025 -->
