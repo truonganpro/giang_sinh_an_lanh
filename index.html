@@ -6,6 +6,10 @@
     <title>Magic Christmas - Final Clean</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Postprocessing (Bloom) for glitter look -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -128,6 +132,16 @@
                 ctx.fillStyle = '#D32F2F'; ctx.fillRect(20, 20, 88, 88);
                 ctx.fillStyle = '#FFD700'; ctx.fillRect(54, 20, 20, 88); ctx.fillRect(20, 54, 88, 20);
                 ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth=2; ctx.strokeRect(20,20,88,88);
+            } else if (type === 'sparkle') {
+                // Glitter point: crisp core + warm halo (white-gold)
+                const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
+                grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.06, 'rgba(255,255,255,1)');
+                grd.addColorStop(0.16, 'rgba(255,248,230,0.95)');  // warm-white
+                grd.addColorStop(0.42, 'rgba(255,215,160,0.35)');  // soft gold halo
+                grd.addColorStop(1.00, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grd; ctx.fillRect(0,0,128,128);
+
             } else if (type === 'soft_dot') {
                 const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 60);
                 grd.addColorStop(0, 'rgba(255,255,255,1)');
@@ -143,15 +157,16 @@
             gold: createCustomTexture('gold_glow'),
             red: createCustomTexture('red_light'),
             gift: createCustomTexture('gift_red'),
-            dot: createCustomTexture('soft_dot')
+            dot: createCustomTexture('soft_dot'),
+            sparkle: createCustomTexture('sparkle')
         };
 
         // ==========================================
         // 2. SYSTEM CONFIG Vandiep
         // ==========================================
         const CONFIG = {
-            goldCount: 2000,
-            redCount: 300,
+            goldCount: 4800,
+            redCount: 900,
             giftCount: 150,
             explodeRadius: 65,  
             photoOrbitRadius: 25,
@@ -159,7 +174,7 @@
             treeBaseRadius: 35
         };
 
-        let scene, camera, renderer;
+        let scene, camera, renderer, composer, bloomPass;
         let groupGold, groupRed, groupGift; 
         let photoMeshes = [];    
         let titleMesh, starMesh, loveMesh;
@@ -283,36 +298,50 @@
         }
 
         // 3. GENERATOR 3D THỰC SỰ (Sampling trong khối hộp)
-        function generateFromSDF3D(count, sdfFn, scale, densityFocus = 1.0) {
+        function generateFromSDF3D(count, sdfFn, scale, opts = {}) {
+            // Edge-biased 3D sampling from SDF (glitter silhouette like reference image)
+            // - More points near the surface (edgeBias)
+            // - Still keeps some interior fill (fillRatio) so bunny looks "fat"
+            const {
+                boxSize = 1.6,
+                zScale = 0.8,
+                edgeBias = 3.0,     // bigger => denser near surface
+                fillRatio = 0.25,   // 0..1 interior fill proportion
+                margin = 0.03,      // include a thin band around surface
+                jitter = 0.03       // micro jitter to avoid banding
+            } = opts;
+
             const out = new Float32Array(count * 3);
             let i = 0;
-            const boxSize = 1.6; // Kích thước vùng tìm kiếm
             const vec = new THREE.Vector3();
+            let guard = 0;
 
-            while (i < count) {
-                // Lấy điểm ngẫu nhiên trong không gian 3D
+            while (i < count && guard < count * 120) {
+                guard++;
+
+                // Sample random point in a 3D box
                 const x = (Math.random() * 2 - 1) * boxSize;
                 const y = (Math.random() * 2 - 1) * boxSize;
-                const z = (Math.random() * 2 - 1) * boxSize * 0.8; // Z mỏng hơn chút
+                const z = (Math.random() * 2 - 1) * boxSize * zScale;
 
                 vec.set(x, y, z);
-                const dist = sdfFn(vec);
+                const dist = sdfFn(vec); // negative inside
 
-                // Nếu điểm nằm trong thỏ (dist < 0)
-                if (dist < 0.02) { // 0.02 là margin để lấy cả viền
-                    // Tỷ lệ lấy: Càng sâu bên trong càng dễ lấy (để tạo khối đặc)
-                    // Hoặc lấy bề mặt: abs(dist) nhỏ
-                    const prob = Math.random();
-                    // Logic: Lấy chủ yếu ở bề mặt (dist gần 0) để tạo viền sáng như hình
-                    // Nhưng cũng cần lấp đầy bên trong
-                    
-                    if (prob > 0.3) { // 70% lấy điểm bất kỳ bên trong -> thỏ đặc
-                        out[i*3]   = x * 40 * scale; // Scale to lên (40)
-                        out[i*3+1] = y * 40 * scale;
-                        out[i*3+2] = z * 40 * scale;
-                        i++;
-                    }
-                }
+                // Keep only inside (plus a small surface margin for a brighter edge)
+                if (dist > margin) continue;
+
+                // Edge-biased acceptance: near surface dist ~ 0 => exp(dist*k) ~ 1
+                // deep inside dist very negative => exp(dist*k) -> small
+                const edgeChance = Math.exp(dist * edgeBias);
+
+                // Mix: mostly edge points + some interior fill
+                const accept = (Math.random() < fillRatio) ? (dist < 0) : (Math.random() < edgeChance);
+                if (!accept) continue;
+
+                out[i*3]   = (x + (Math.random()-0.5)*jitter) * 40 * scale;
+                out[i*3+1] = (y + (Math.random()-0.5)*jitter) * 40 * scale;
+                out[i*3+2] = (z + (Math.random()-0.5)*jitter) * 40 * scale;
+                i++;
             }
             return out;
         }
@@ -584,9 +613,25 @@
             camera.position.z = 100;
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+            // Better highlight rolloff for glitter particles
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.18;
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
+
+            // Bloom makes particles look like white-gold glitter
+            composer = new THREE.EffectComposer(renderer);
+            const renderPass = new THREE.RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.35,  // strength
+                0.75,  // radius
+                0.08   // threshold (higher => less "bệt")
+            );
+            composer.addPass(bloomPass);
 
             groupGold = createParticleSystem('gold', CONFIG.goldCount, 2.0);
             groupRed = createParticleSystem('red', CONFIG.redCount, 3.5); 
@@ -595,16 +640,18 @@
             // TẠO MODEL THỎ 3D BÉO (FULL BODY)
             // Group Gold: Thân hình chính
             groupGold.geometry.userData.bunny = generateFromSDF3D(
-                CONFIG.goldCount, 
-                sdfBunny3D, 
-                0.85 // Scale to lên
+                CONFIG.goldCount,
+                sdfBunny3D,
+                0.90,
+                { edgeBias: 3.4, fillRatio: 0.22, margin: 0.035, jitter: 0.02 }
             );
             
             // Group Red: Chi tiết (Má, Tai trong)
             groupRed.geometry.userData.bunny = generateFromSDF3D(
-                CONFIG.redCount, 
-                sdfBunnyDetails3D, 
-                0.85
+                CONFIG.redCount,
+                sdfBunnyDetails3D,
+                0.90,
+                { edgeBias: 2.2, fillRatio: 0.10, margin: 0.025, jitter: 0.02 }
             );
             
             // Gift: dùng explode target (sẽ tắt khi BUNNY, chỉ hiện khi lắc cực mạnh)
@@ -692,7 +739,7 @@
             };
 
             // Use soft dot texture for gold and red (smooth like heart), gift uses its own texture
-            const textureMap = (type === 'gold' || type === 'red') ? textures.dot : textures[type];
+            const textureMap = (type === 'gold' || type === 'red') ? textures.sparkle : textures[type];
             
             const mat = new THREE.PointsMaterial({
                 size: size,
@@ -829,10 +876,11 @@
             const shakeEnergy = window.__bunnyShake || 0;
             const count = positions.length / 3;
 
-            // --- LOGIC MÀU SẮC THỎ (GIỐNG HÌNH MẪU) ---
-            // Màu vàng ấm (Gold) và Hồng neon (Pink)
-            const colGold = { r: 1.0, g: 0.8, b: 0.4 }; // Vàng sáng
-            const colPink = { r: 1.0, g: 0.2, b: 0.5 }; // Hồng đậm
+            // --- LOGIC MÀU SẮC THỎ (TRẮNG–VÀNG GLITTER) ---
+            // Warm-white body + soft gold accents (like reference)
+            const colWarmWhite = { r: 1.00, g: 0.97, b: 0.90 }; // trắng kem
+            const colSoftGold  = { r: 1.00, g: 0.86, b: 0.62 }; // vàng mật ong nhạt
+            const colDeepEye   = { r: 0.10, g: 0.03, b: 0.08 }; // mắt tối hơi tím
 
             // Set rotation for different states (outside loop for efficiency)
             if (targetState === 'BUNNY') {
@@ -884,26 +932,28 @@
 
                 // Xử lý Màu & Size
                 if (targetState === 'BUNNY') {
-                    // Màu sắc cơ bản
-                    let c = (type === 'gold') ? colGold : colPink;
-                    
-                    // Mắt: Một số hạt đỏ chuyển sang đen
-                    if (type === 'red' && i > count * 0.85) c = {r:0.1, g:0.0, b:0.0}; 
+                    // Base bunny colors
+                    // - Gold group: warm-white body
+                    // - Red group: soft-gold accents + a small portion as eyes
+                    let c = (type === 'gold') ? colWarmWhite : colSoftGold;
+
+                    // Eyes (a small tail of red points become dark)
+                    if (type === 'red' && i > count * 0.86) c = colDeepEye; 
 
                     // HIỆU ỨNG PHÁT SÁNG KHI LẮC
                     if (shakeEnergy > 0.1) {
                         // Chuyển sang màu trắng sáng rực rỡ
-                        const flash = shakeEnergy * 0.8; // Cường độ sáng
+                        const flash = shakeEnergy * 0.55; // warm flash (avoid overblown white)
                         colors[i*3]   = Math.min(1, c.r + flash);
                         colors[i*3+1] = Math.min(1, c.g + flash);
-                        colors[i*3+2] = Math.min(1, c.b + flash);
-                        
-                        // Hạt to lên
-                        sizes[i] = baseSize * (1.0 + shakeEnergy * 1.5);
+                        colors[i*3+2] = Math.min(1, c.b + flash*0.75);
+
+                        // Slightly larger when shaking, but still glittery
+                        sizes[i] = baseSize * (0.85 + shakeEnergy * 0.9);
                     } else {
                         // Bình thường
                         colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
-                        sizes[i] = baseSize;
+                        sizes[i] = baseSize * (0.70 + 0.22*(0.5 + 0.5*Math.sin(time*7 + phases[i])));
                     }
                 } else {
                     // Các trạng thái khác (Cây, Tim, Explode...)
@@ -1016,7 +1066,7 @@
             }
             
             updateDust(dt);
-            renderer.render(scene, camera);
+            if (composer) composer.render(); else renderer.render(scene, camera);
         }
 
         // V-sign and shake detection
@@ -1181,7 +1231,13 @@
         }
 
         window.addEventListener('resize', () => {
-            if(camera) { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+            if(camera) {
+                camera.aspect = window.innerWidth/window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+                if (bloomPass) bloomPass.setSize(window.innerWidth, window.innerHeight);
+            }
         });
     </script>
 </body>
