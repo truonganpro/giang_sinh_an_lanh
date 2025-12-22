@@ -287,6 +287,7 @@
             const out = new Float32Array(count * 3);
             let i = 0;
             const boxSize = 1.6; // Kích thước vùng tìm kiếm
+            const vec = new THREE.Vector3();
 
             while (i < count) {
                 // Lấy điểm ngẫu nhiên trong không gian 3D
@@ -294,7 +295,7 @@
                 const y = (Math.random() * 2 - 1) * boxSize;
                 const z = (Math.random() * 2 - 1) * boxSize * 0.8; // Z mỏng hơn chút
 
-                const vec = new THREE.Vector3(x, y, z);
+                vec.set(x, y, z);
                 const dist = sdfFn(vec);
 
                 // Nếu điểm nằm trong thỏ (dist < 0)
@@ -825,37 +826,53 @@
             if (!targets) targets = group.geometry.userData.explode;
             if (targetState === 'PHOTO') targets = group.geometry.userData.explode;
 
-            // Lấy cường độ lắc tay (từ 0.0 đến 1.0)
             const shakeEnergy = window.__bunnyShake || 0;
-
-            // Xử lý chuyển động với hiệu ứng shake
             const count = positions.length / 3;
+
+            // --- LOGIC MÀU SẮC THỎ (GIỐNG HÌNH MẪU) ---
+            // Màu vàng ấm (Gold) và Hồng neon (Pink)
+            const colGold = { r: 1.0, g: 0.8, b: 0.4 }; // Vàng sáng
+            const colPink = { r: 1.0, g: 0.2, b: 0.5 }; // Hồng đậm
+
+            // Set rotation for different states (outside loop for efficiency)
+            if (targetState === 'BUNNY') {
+                group.rotation.y = Math.sin(time) * 0.1; // Thỏ đung đưa nhẹ
+            } else if (targetState === 'EXPLODE') {
+                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
+            } else if (targetState === 'TREE') {
+                group.rotation.y += 0.003;
+            } else {
+                group.rotation.y = 0;
+            }
+
             for(let i=0; i<count; i++) {
                 let tx = targets[i*3];
                 let ty = targets[i*3+1];
                 let tz = targets[i*3+2];
 
-                // --- HIỆU ỨNG LẮC TAY (SHAKE EFFECT) - PHÁO HOA ---
-                if (targetState === 'BUNNY' && shakeEnergy > 0.05) {
-                    // 1. Hiệu ứng "Bung tỏa" (Firework spikes)
-                    // Đẩy hạt ra xa theo hướng từ tâm (0,0,0)
-                    const dist = Math.sqrt(tx*tx + ty*ty + tz*tz);
-                    if (dist > 0.001) {
-                        const dirX = tx / dist; 
-                        const dirY = ty / dist; 
-                        const dirZ = tz / dist;
+                // --- HIỆU ỨNG LẮC TAY (SHAKE EFFECT) ---
+                if (targetState === 'BUNNY') {
+                    // Nếu đang lắc tay:
+                    if (shakeEnergy > 0.05) {
+                        // 1. Hiệu ứng "Bung tỏa" (Firework spikes)
+                        // Đẩy hạt ra xa theo hướng từ tâm (0,0,0)
+                        const dist = Math.sqrt(tx*tx + ty*ty + tz*tz);
+                        if (dist > 0.001) {
+                            const dirX = tx / dist; 
+                            const dirY = ty / dist; 
+                            const dirZ = tz / dist;
 
-                        // Càng lắc mạnh, hạt càng bung ra xa theo tia
-                        const spike = shakeEnergy * 15.0 * Math.random(); 
-                        tx += dirX * spike;
-                        ty += dirY * spike;
-                        tz += dirZ * spike;
+                            // Càng lắc mạnh, hạt càng bung ra xa theo tia
+                            const spike = shakeEnergy * 15.0 * Math.random(); 
+                            tx += dirX * spike;
+                            ty += dirY * spike;
+                            tz += dirZ * spike;
+                        }
+                        
+                        // Rung lắc ngẫu nhiên (Noise)
+                        tx += (Math.random()-0.5) * shakeEnergy * 2;
+                        ty += (Math.random()-0.5) * shakeEnergy * 2;
                     }
-                    
-                    // Rung lắc ngẫu nhiên (Noise)
-                    tx += (Math.random()-0.5) * shakeEnergy * 2;
-                    ty += (Math.random()-0.5) * shakeEnergy * 2;
-                    tz += (Math.random()-0.5) * shakeEnergy * 2;
                 }
 
                 // Di chuyển hạt
@@ -864,55 +881,9 @@
                 positions[i*3] += (tx - positions[i*3]) * lerpSpeed;
                 positions[i*3+1] += (ty - positions[i*3+1]) * lerpSpeed;
                 positions[i*3+2] += (tz - positions[i*3+2]) * lerpSpeed;
-            }
-            group.geometry.attributes.position.needsUpdate = true;
-            
-            // 2. COLOR & SIZE Vandiep
-            
-            if (targetState === 'TREE') {
-                group.rotation.y += 0.003;
-                
-                for(let i=0; i<count; i++) {
-                    sizes[i] = baseSize;
-                    let brightness = 1.0;
-                    if(type === 'red') {
-                        // RED
-                        brightness = 0.5 + 0.5 * Math.sin(time * 3 + phases[i]);
-                    } else if(type === 'gold') {
-                        // YELLOW
-                        brightness = 0.8 + 0.4 * Math.sin(time * 10 + phases[i]);
-                    }
-                    colors[i*3]   = baseColor.r * brightness;
-                    colors[i*3+1] = baseColor.g * brightness;
-                    colors[i*3+2] = baseColor.b * brightness;
-                }
-                group.geometry.attributes.color.needsUpdate = true;
-                group.geometry.attributes.size.needsUpdate = true;
 
-            } else if (targetState === 'HEART') {
-                group.rotation.y = 0;
-                const beatScale = 1 + Math.abs(Math.sin(time * 3)) * 0.15;
-                group.scale.set(beatScale, beatScale, beatScale);
-
-                // Vandiep
-                for(let i=0; i<count; i++) {
-                    colors[i*3] = baseColor.r; colors[i*3+1] = baseColor.g; colors[i*3+2] = baseColor.b;
-                    if (i % 3 === 0) sizes[i] = baseSize;
-                    else sizes[i] = 0;
-                }
-                group.geometry.attributes.color.needsUpdate = true;
-                group.geometry.attributes.size.needsUpdate = true;
-
-            } else if (targetState === 'BUNNY') {
-                const shakeEnergy = window.__bunnyShake || 0;
-                
-                group.rotation.y = Math.sin(time) * 0.1; // Thỏ đung đưa nhẹ
-                
-                // Màu sắc cơ bản (Vàng và Hồng neon như hình mẫu)
-                const colGold = { r: 1.0, g: 0.8, b: 0.4 }; // Vàng sáng
-                const colPink = { r: 1.0, g: 0.2, b: 0.5 }; // Hồng đậm
-
-                for (let i = 0; i < count; i++) {
+                // Xử lý Màu & Size
+                if (targetState === 'BUNNY') {
                     // Màu sắc cơ bản
                     let c = (type === 'gold') ? colGold : colPink;
                     
@@ -934,37 +905,36 @@
                         colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
                         sizes[i] = baseSize;
                     }
-                }
-
-                // Ẩn hạt quà khi đang là Thỏ để đỡ rối
-                if (type === 'gift') {
-                    // Chỉ hiện quà khi lắc RẤT mạnh (như phần thưởng rơi ra)
-                    const visibleScale = (shakeEnergy > 0.8) ? 1 : 0;
-                    for(let j=0; j<sizes.length; j++) sizes[j] *= visibleScale;
-                }
-
-                group.geometry.attributes.size.needsUpdate = true;
-                group.geometry.attributes.color.needsUpdate = true;
-
-            } else {
-                // EXPLODE
-                group.scale.set(1,1,1);
-                group.rotation.y += (handRotY - group.rotation.y) * 0.1;
-
-                // size, color
-                for(let i=0; i<count; i++) {
-                    sizes[i] = baseSize;
-                    let brightness = 1.0;
-                    if(type === 'gold' || type === 'red') {
-                        brightness = 0.8 + 0.5 * Math.sin(time * 12 + phases[i]);
-                    }
-                    colors[i*3]   = baseColor.r * brightness;
+                } else {
+                    // Các trạng thái khác (Cây, Tim, Explode...)
+                    let brightness = 0.8 + 0.4 * Math.sin(time * 5 + phases[i]);
+                    colors[i*3] = baseColor.r * brightness;
                     colors[i*3+1] = baseColor.g * brightness;
                     colors[i*3+2] = baseColor.b * brightness;
+                    
+                    if (targetState === 'HEART' && i % 3 !== 0) sizes[i] = 0;
+                    else sizes[i] = baseSize;
                 }
-                group.geometry.attributes.size.needsUpdate = true;
-                group.geometry.attributes.color.needsUpdate = true;
             }
+            
+            // Ẩn hạt quà khi đang là Thỏ để đỡ rối
+            if (targetState === 'BUNNY' && type === 'gift') {
+                // Chỉ hiện quà khi lắc RẤT mạnh (như phần thưởng rơi ra)
+                const visibleScale = (shakeEnergy > 0.8) ? 1 : 0;
+                for(let j=0; j<sizes.length; j++) sizes[j] *= visibleScale;
+            }
+            
+            // Set scale for HEART state
+            if (targetState === 'HEART') {
+                const beatScale = 1 + Math.abs(Math.sin(time * 3)) * 0.15;
+                group.scale.set(beatScale, beatScale, beatScale);
+            } else {
+                group.scale.set(1, 1, 1);
+            }
+
+            group.geometry.attributes.position.needsUpdate = true;
+            group.geometry.attributes.color.needsUpdate = true;
+            group.geometry.attributes.size.needsUpdate = true;
         }
 
         function animate() {
