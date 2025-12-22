@@ -333,36 +333,6 @@
             }
         }
 
-        function createDustSystem(maxCount = 1200) {
-            const geo = new THREE.BufferGeometry();
-            const pos = new Float32Array(maxCount * 3);
-            const vel = new Float32Array(maxCount * 3);
-            const life = new Float32Array(maxCount);
-            const size = new Float32Array(maxCount);
-
-            for (let i=0; i<maxCount; i++){
-                life[i] = 0;
-                size[i] = 1.2;
-            }
-
-            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
-            geo.userData = { vel, life, maxCount, cursor: 0 };
-
-            const mat = new THREE.PointsMaterial({
-                size: 1.4,
-                map: textures.gold,
-                transparent: true,
-                opacity: 0.25,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                sizeAttenuation: true
-            });
-
-            const pts = new THREE.Points(geo, mat);
-            scene.add(pts);
-            return pts;
-        }
 
         function createDecorations() {
             // MERRY CHRISTMAS Vandiep
