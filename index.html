@@ -298,8 +298,8 @@
                 phases: phases, baseColor: baseColor, baseSize: size
             };
 
-            // Use soft dot texture for gold and red (smooth like heart), gift uses its own texture
-            const textureMap = (type === 'gold' || type === 'red') ? textures.sparkle : textures[type];
+            // Use textures for particles
+            const textureMap = textures[type] || textures.dot;
             
             const mat = new THREE.PointsMaterial({
                 size: size,
